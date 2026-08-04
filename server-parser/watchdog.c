@@ -1,15 +1,15 @@
+#define _DEFAULT_SOURCE
+#include <unistd.h>
+#include <gpiod.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
 #include <pthread.h>
 #include <sys/time.h>
 #include <fcntl.h>
 #include <string.h>
-#include <gpiod.h>
+#include <signal.h>
 
 #include "watchdog.h"
-
-extern volatile int g_needs_reconfig; //para avisar software do reset fisico
 
 static struct gpiod_chip *chip = NULL;
 static struct gpiod_line_settings *settings = NULL;
@@ -127,8 +127,6 @@ void* _watchdog_monitor(void *arg)
         if (time_since_last_feed > wdt->timeout) 
         {
             _watchdog_force_reset(wdt->gpio_offset);
-
-            g_needs_reconfig = 1;
             
             pthread_mutex_lock(&wdt->lock);
             wdt->last_heartbeat = _get_current_time() + 3.0; //3s ate proximo reset ser possivel
