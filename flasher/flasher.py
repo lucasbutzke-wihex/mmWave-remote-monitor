@@ -69,8 +69,6 @@ class ImageObject:
         self.file_id = ""   # To be populated by checkFileHeader
         self.fileSize = 0   # To be populated by checkFileHeader
 
-init_pin()
-flash_pin_off()
 
 # Main Flasher class stripped of desktop GUI framework bindings
 class FlashPython:
@@ -88,7 +86,6 @@ class FlashPython:
         self.update_progress("Initialization complete.", 1)
         self.push_message("Initialization complete.", FP_TRACE_LEVEL_INFO)
         self.ldr.update_prog_percentage(1)
-        flash_pin_on()
 
     # Concrete CLI implementation of UI progress updates
     def update_progress(self, message, percentage):
@@ -210,11 +207,13 @@ class FlashPython:
         else:
             self.push_message(mmWaveProgFlash.AWR_CANCEL_MSG, FP_TRACE_LEVEL_WARNING)
 
-    flash_pin_off()
-
 
 # Command-line Execution Interface
 if __name__ == "__main__":
+
+    init_pin()
+    flash_pin_off()
+
     parser = argparse.ArgumentParser(description="Standalone CLI Firmware Flasher for Gen1 TI mmWave Radar Devices")
     parser.add_argument("-p", "--port", required=True, help="Target serial port (e.g., /dev/ttyUSB0 or COM4)")
     parser.add_argument("-f", "--file", required=True, help="Path to firmware binary (.bin file)")
@@ -251,10 +250,13 @@ if __name__ == "__main__":
         'DownloadFormat': args.erase
     }
 
+    flash_pin_on()
+
     # Instantiate the adjusted runner and execute the flash sequence
     flasher = FlashPython()
     image_queue = [ImageObject(args.file, order=1)] # Point to default image slot (META_IMAGE1)
     flasher.load_image(image_queue, props)
 
+    flash_pin_off()
     end_pin()
 
