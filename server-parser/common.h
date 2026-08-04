@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <pthread.h>
 
 #define BUFFER_SIZE 2048
 #define CMD_LINE_BUF_SIZE 512
@@ -12,5 +13,7 @@ extern size_t g_cmd_line_len;
 
 extern uint32_t g_tx_sequence;
 extern int g_client_fd;
+
+pthread_t worker_tid;
 
 #endif

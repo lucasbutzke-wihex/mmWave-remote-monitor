@@ -14,6 +14,8 @@
 #include "watchdog.h"
 #include "tcp_server.h"
 #include "common.h"
+#include "logger.h"
+
 
 char g_cmd_line_buf[CMD_LINE_BUF_SIZE];
 size_t g_cmd_line_len = 0;
@@ -27,16 +29,26 @@ static void handle_sigint(int sig) {
 
 
 int main() {
+    LogConfig config = {
+        .log_file = "/tmp/application.log",
+        .max_size = 500,       // Small size limit (500 bytes) to trigger quick rotation demo
+        .max_backups = 3
+    };
+
     RadarWatchdog wdt;
     watchdog_start(&wdt, "23", 1.0); // TODO pino 23, 1s de timeout
 
     signal(SIGINT, handle_sigint);
 
-    // int fd1 = configure_serial_port("/dev/ttyUSB1", B115200);
-    // int fd2 = configure_serial_port("/dev/ttyUSB0", B921600);
+    int fd1 = configure_serial_port("/dev/ttyUSB1", B115200);
+    int fd2 = configure_serial_port("/dev/ttyUSB0", B921600);
 
-    int fd1 = configure_serial_port("/dev/pts/2", B115200);
-    int fd2 = configure_serial_port("/dev/pts/4", B921600);
+    // Initialize clean primary log file
+    FILE *fp = fopen(config.log_file, "w");
+    if (fp) {
+        fprintf(fp, "=== Log Session Started ===\n");
+        fclose(fp);
+    }
 
     int listen_fd = setup_tcp_listener(TCP_SERVER_PORT);
     if (listen_fd < 0) {
@@ -99,10 +111,14 @@ int main() {
         }
     }
 
+    // Cleanup mutex resources
+    pthread_mutex_destroy(&log_mutex);
+
     close_client();
     close(listen_fd);
     if (fd1 >= 0) close(fd1);
     if (fd2 >= 0) close(fd2);
     watchdog_stop(&wdt);
-    return 0;
+    
+    return EXIT_SUCCESS;
 }
