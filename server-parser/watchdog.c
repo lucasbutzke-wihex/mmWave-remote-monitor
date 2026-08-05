@@ -1,12 +1,16 @@
 #define _DEFAULT_SOURCE
 #include <unistd.h>
 #include <gpiod.h>
+#define _DEFAULT_SOURCE
+#include <unistd.h>
+#include <gpiod.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
 #include <sys/time.h>
 #include <fcntl.h>
 #include <string.h>
+#include <signal.h>
 #include <signal.h>
 
 #include "watchdog.h"

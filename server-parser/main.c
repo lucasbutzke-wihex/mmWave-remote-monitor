@@ -6,7 +6,11 @@
 #include <poll.h>
 #include <signal.h>
 #include <time.h>
+#include <signal.h>
+#include <time.h>
 #include <errno.h>
+#include <stdalign.h>
+#include <termios.h>
 #include <stdalign.h>
 #include <termios.h>
 
@@ -107,6 +111,8 @@ int main(int argc, char * argv[]) {
         }
 
         if (fds[1].revents & POLLIN) {
+            char rx_buffer[BUFFER_SIZE];
+            ssize_t n = read(fd2, rx_buffer, sizeof(rx_buffer));
             char rx_buffer[BUFFER_SIZE];
             ssize_t n = read(fd2, rx_buffer, sizeof(rx_buffer));
             if (n > 0) {
