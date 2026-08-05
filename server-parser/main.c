@@ -32,13 +32,12 @@ int main() {
     logger_init("/tmp/test.log", 1024 * 1024, 5);
 
     RadarWatchdog wdt;
-    watchdog_start(&wdt, "23", 1.0); // TODO pino 23, 1s de timeout
+    watchdog_start(&wdt, 21, 1.0); //  pino 21, 1s de timeout
 
     signal(SIGINT, handle_sigint);
 
     int fd1 = configure_serial_port("/dev/ttyUSB1", B115200);
     int fd2 = configure_serial_port("/dev/ttyUSB0", B921600);
-
 
     int listen_fd = setup_tcp_listener(TCP_SERVER_PORT);
     if (listen_fd < 0) {
