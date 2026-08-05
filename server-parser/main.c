@@ -36,12 +36,12 @@ int main() {
 
     signal(SIGINT, handle_sigint);
 
-    int fd1 = configure_serial_port("/dev/ttyUSB1", B115200);
-    int fd2 = configure_serial_port("/dev/ttyUSB0", B921600);
+    int fd1 = configure_serial_port("/dev/pts/6", B115200);
+    int fd2 = configure_serial_port("/dev/pts/7", B921600);
 
     int listen_fd = setup_tcp_listener(TCP_SERVER_PORT);
     if (listen_fd < 0) {
-        fprintf(stderr, "Failed to start TCP listener, exiting.\n");
+        LOG_ERROR(stderr, "Failed to start TCP listener, exiting.\n");
         return 1;
     }
 
@@ -49,7 +49,7 @@ int main() {
     alignas(16) static char port2_accum[PORT2_ACCUM_SIZE];
     size_t port2_accum_len = 0;
 
-    printf("Protocol Engine Server (TCP) running on port %d...\n", TCP_SERVER_PORT);
+    LOG_INFO("Protocol Engine Server (TCP) running on port %d...\n", TCP_SERVER_PORT);
 
     while (!g_stop) {
         struct pollfd fds[4];
@@ -79,7 +79,7 @@ int main() {
         int ready = poll(fds, nfds, 100);
         if (ready < 0) {
             if (errno == EINTR) continue;
-            perror("poll failed");
+            LOG_ERROR("poll failed");
             break;
         }
 

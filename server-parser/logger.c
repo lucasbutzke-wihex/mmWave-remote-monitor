@@ -9,10 +9,11 @@
 #include <stdarg.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <sys/syscall.h>
 
 #include "logger.h"
 
-#define MAX_LOG_MESSAGE 512
+#define MAX_LOG_MESSAGE 1024
 
 typedef struct LogNode{
     char message[MAX_LOG_MESSAGE];
@@ -20,6 +21,13 @@ typedef struct LogNode{
 } LogNode;
 
 static LogLevel current_level = LOG_INFO;
+
+struct timespec ts;
+struct tm tm;
+
+char buffer[MAX_LOG_MESSAGE];
+char timestamp[64];
+char final[1024];
 
 static pthread_t logger_thread;
 
@@ -41,7 +49,6 @@ static size_t current_size = 0;
 static size_t max_log_size = 0;
 
 static int max_log_backups = 0;
-
 
 void logger_set_level(LogLevel level)
 {
@@ -138,8 +145,6 @@ int logger_init(const char *filename,
                 size_t max_size,
                 int backups)
 {
-    struct timespec ts;
-
     clock_gettime(CLOCK_REALTIME, &ts);
 
     strcpy(logfile,filename);
@@ -152,8 +157,11 @@ int logger_init(const char *filename,
               O_CREAT|O_APPEND|O_WRONLY,
               0644);
 
-    if(fd<0)
+
+    if (fd < 0) {
+        LOG_ERROR(stderr, "Failed to open file, exiting.\n");
         return -1;
+    }
 
     struct stat st;
 
@@ -175,23 +183,47 @@ void logger_log(LogLevel level,
 {
     if(level < current_level)
         return;
-
-    char buffer[MAX_LOG_MESSAGE];
-
+    
     va_list args;
 
     va_start(args,fmt);
 
     vsnprintf(buffer,sizeof(buffer),fmt,args);
-
+    
     va_end(args);
+
+    if (level == LOG_ERROR)
+        perror(buffer);
+
+    unsigned long tid = (unsigned long)pthread_self();
+
+    localtime_r(&ts.tv_sec, &tm);
+
+    snprintf(timestamp,
+            sizeof(timestamp),
+            "%04d-%02d-%02d %02d:%02d:%02d.%03ld",
+            tm.tm_year + 1900,
+            tm.tm_mon + 1,
+            tm.tm_mday,
+            tm.tm_hour,
+            tm.tm_min,
+            tm.tm_sec,
+            ts.tv_nsec / 1000000);
+
+    snprintf(final,
+         sizeof(final),
+         "%s [%s] [TID:%lu] %s",
+         timestamp,
+         level_string(level),
+         tid,
+         buffer);
 
     LogNode *node = malloc(sizeof(LogNode));
 
     if(node==NULL)
         return;
 
-    strcpy(node->message,buffer);
+    strcpy(node->message, final);
 
     node->next=NULL;
 
