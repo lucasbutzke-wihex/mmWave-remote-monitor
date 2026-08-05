@@ -1,3 +1,9 @@
+# setup
+
+```
+    sudo apt install clang
+```
+
 # install gpiod v2
 
 ```
@@ -16,3 +22,4 @@
     ninja -C build
     sudo ninja -C build install
     sudo ldconfig
+```
