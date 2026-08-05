@@ -113,8 +113,6 @@ int main(int argc, char * argv[]) {
         if (fds[1].revents & POLLIN) {
             char rx_buffer[BUFFER_SIZE];
             ssize_t n = read(fd2, rx_buffer, sizeof(rx_buffer));
-            char rx_buffer[BUFFER_SIZE];
-            ssize_t n = read(fd2, rx_buffer, sizeof(rx_buffer));
             if (n > 0) {
                 logger_log(LOG_INFO, rx_buffer);
                 send_async_packet(PKT_TYPE_RADAR, rx_buffer, n);

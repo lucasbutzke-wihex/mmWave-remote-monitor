@@ -1,9 +1,6 @@
 #define _DEFAULT_SOURCE
 #include <unistd.h>
 #include <gpiod.h>
-#define _DEFAULT_SOURCE
-#include <unistd.h>
-#include <gpiod.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
