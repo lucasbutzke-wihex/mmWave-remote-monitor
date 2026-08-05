@@ -36,8 +36,8 @@ int main() {
 
     signal(SIGINT, handle_sigint);
 
-    int fd1 = configure_serial_port("/dev/pts/6", B115200);
-    int fd2 = configure_serial_port("/dev/pts/7", B921600);
+    int fd1 = configure_serial_port("/dev/ttyUSB1", B115200);
+    int fd2 = configure_serial_port("/dev/ttyUSB0", B921600);
 
     int listen_fd = setup_tcp_listener(TCP_SERVER_PORT);
     if (listen_fd < 0) {

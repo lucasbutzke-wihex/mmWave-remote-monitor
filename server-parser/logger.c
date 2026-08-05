@@ -194,6 +194,8 @@ void logger_log(LogLevel level,
 
     if (level == LOG_ERROR)
         perror(buffer);
+    else
+        printf("%s", buffer);
 
     unsigned long tid = (unsigned long)pthread_self();
 
