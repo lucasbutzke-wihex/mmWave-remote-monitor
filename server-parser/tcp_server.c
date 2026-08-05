@@ -8,7 +8,7 @@
 
 #include "tcp_server.h"
 #include "common.h"
-
+#include "logger.h"
 
 int setup_tcp_listener(int port) {
     int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -78,6 +78,7 @@ void close_client(void) {
         close(g_client_fd);
         g_client_fd = -1;
         g_cmd_line_len = 0;
+        logger_log(LOG_WARN, "[TCP] Client disconnected.\n");
         printf("[TCP] Client disconnected.\n");
     }
 }
@@ -89,12 +90,14 @@ void accept_new_client(int listen_fd) {
     int new_fd = accept(listen_fd, (struct sockaddr *)&client_addr, &client_len);
     if (new_fd < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            logger_log(LOG_WARN, "accept() failed");
             perror("accept() failed");
         }
         return;
     }
 
     if (g_client_fd >= 0) {
+        logger_log(LOG_WARN, "[TCP] New client connecting, dropping previous client.\n");
         printf("[TCP] New client connecting, dropping previous client.\n");
         close_client();
     }
@@ -107,6 +110,8 @@ void accept_new_client(int listen_fd) {
     g_client_fd = new_fd;
     g_cmd_line_len = 0;
 
+    logger_log(LOG_INFO, "[TCP] Client connected: %s:%d\n",
+           inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
     printf("[TCP] Client connected: %s:%d\n",
            inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 }

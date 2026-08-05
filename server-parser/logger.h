@@ -3,32 +3,25 @@
 
 #include <stddef.h>
 
-int logger_init(
-const char *filename,
-size_t max_size,
-int max_backups);
+typedef enum
+{
+    LOG_TRACE = 0,
+    LOG_DEBUG,
+    LOG_INFO,
+    LOG_WARN,
+    LOG_ERROR,
+    LOG_FATAL
 
-void logger_log(const char *fmt, ...);
+} LogLevel;
+
+int logger_init(
+    const char *filename,
+    size_t max_size,
+    int max_backups
+);
+
+void logger_log(LogLevel level, const char *fmt, ...);
 
 void logger_shutdown(void);
 
 #endif
-
-// #include <pthread.h>
-
-// #define MAX_PATH 512
-// #define MAX_MSG 256
-
-// // Global synchronization structures
-// extern pthread_mutex_t log_mutex;
-// extern pthread_t worker_tid;
-
-// // Configuration context structure to pass data to worker threads
-// typedef struct {
-//     const char *log_file;
-//     long max_size;
-//     int max_backups;
-// } LogConfig;
-
-
-// void write_log(const char *base_path, long max_bytes, int max_backups, const char *message);

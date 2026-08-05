@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -7,21 +8,24 @@
 #include <fcntl.h>
 #include <stdarg.h>
 #include <sys/stat.h>
+#include <time.h>
 
 #include "logger.h"
 
 #define MAX_LOG_MESSAGE 512
 
-typedef struct{
+typedef struct LogNode{
     char message[MAX_LOG_MESSAGE];
     struct LogNode *next;
 } LogNode;
+
+static LogLevel current_level = LOG_INFO;
 
 static pthread_t logger_thread;
 
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
-static pthread_mutex_t cond = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 
 static LogNode *head = NULL;
 static LogNode *tail = NULL;
@@ -38,6 +42,26 @@ static size_t max_log_size = 0;
 
 static int max_log_backups = 0;
 
+
+void logger_set_level(LogLevel level)
+{
+    current_level = level;
+}
+
+static const char *level_string(LogLevel level)
+{
+    switch(level)
+    {
+        case LOG_TRACE: return "TRACE";
+        case LOG_DEBUG: return "DEBUG";
+        case LOG_INFO:  return "INFO ";
+        case LOG_WARN:  return "WARN ";
+        case LOG_ERROR: return "ERROR";
+        case LOG_FATAL: return "FATAL";
+    }
+
+    return "UNKNOWN";
+}
 
 static void rotate_logs(void)
 {
@@ -114,6 +138,10 @@ int logger_init(const char *filename,
                 size_t max_size,
                 int backups)
 {
+    struct timespec ts;
+
+    clock_gettime(CLOCK_REALTIME, &ts);
+
     strcpy(logfile,filename);
 
     max_log_size = max_size;
@@ -141,8 +169,13 @@ int logger_init(const char *filename,
     return 0;
 }
 
-void logger_log(const char *fmt,...)
+void logger_log(LogLevel level,
+                const char *fmt,
+                ...)
 {
+    if(level < current_level)
+        return;
+
     char buffer[MAX_LOG_MESSAGE];
 
     va_list args;

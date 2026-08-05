@@ -1,7 +1,7 @@
-CC = gcc
+CC = clang
 CFLAGS = -Wall -Wextra -std=c11 -O2 -g -fsanitize=address
 # Add any libraries you need here (e.g., -lgpiod -lpthread)
-LIBS = -lgpiod -lpthread -fsanitize=address
+LIBS = -lgpiod -lpthread -lrt -fsanitize=address
 
 # Directories
 SRC_DIR = .
