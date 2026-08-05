@@ -7,11 +7,12 @@ from gpiod.line import Direction, Value
 
 #define chip e pino
 CHIP_PATH = "/dev/gpiochip0"
-PIN_OFFSET = 17 #alterar depois se necessario
+FLASHER_PIN_OFFSET = 17 #alterar depois se necessario
+RESET_PIN_OFFSET = 21
 
 _pin_req = None #para requisitar pino
 
-def init_pin(chip_path=CHIP_PATH, pin=PIN_OFFSET):
+def init_pins(chip_path=CHIP_PATH, flash_pin=FLASHER_PIN_OFFSET, reset_pin=RESET_PIN_OFFSET):
     global _pin_req
     
     if _pin_req is not None:
@@ -21,18 +22,37 @@ def init_pin(chip_path=CHIP_PATH, pin=PIN_OFFSET):
         chip_path,
         consumer="mmwave-controller",
         config={
-            pin: gpiod.LineSettings(
+            flash_pin: gpiod.LineSettings(
+                direction=Direction.OUTPUT,
+                output_value=Value.INACTIVE
+            ),
+            reset_pin: gpiod.LineSettings(
                 direction=Direction.OUTPUT,
                 output_value=Value.INACTIVE
             )
         }
     )
 
-def flash_pin_on(pin=PIN_OFFSET):
+def flash_pin_on(pin=FLASHER_PIN_OFFSET):
     _pin_req.set_value(pin, Value.ACTIVE)
 
-def flash_pin_off(pin=PIN_OFFSET):
+def flash_pin_off(pin=FLASHER_PIN_OFFSET):
     _pin_req.set_value(pin, Value.INACTIVE)
+
+def reset_pin_on(pin=RESET_PIN_OFFSET):
+    _pin_req.set_value(pin, Value.ACTIVE)
+
+def reset_pin_off(pin=RESET_PIN_OFFSET):
+    _pin_req.set_value(pin, Value.INACTIVE)
+
+def get_pin_state(pin): #retorna estado atual do pino
+    if _pin_req is None:
+        raise RuntimeError("O pino não foi inicializado.")
+    return _pin_req.get_value(pin)
+
+def verify_pin_state(pin, expected_value):
+    current_value = get_pin_state(pin)
+    return current_value == expected_value
 
 def end_pin(): #libera pino
     global _pin_req
@@ -61,6 +81,67 @@ FP_TRACE_LEVEL_WARNING = 1
 FP_TRACE_LEVEL_INFO = 0
 FP_TRACE_LEVEL_DEBUG = 255
 
+#state machine
+class StateMachine:
+    def __init__(self):
+        self.state = "IDLE"
+
+        self.transitions = {
+            "IDLE": {"prepare": "PREPARING"},
+            "PREPARING": {"flash": "FLASHING", "error": "ERROR"},
+            "FLASHING": {"stop": "END", "error": "ERROR"},
+            "END": {"reset": "IDLE"}, #estado final
+            "ERROR": {"reset": "IDLE"} #erro, estado final
+        }
+
+        self.state_handlers = {
+            "IDLE": self._on_enter_idle,
+            "PREPARING": self._on_enter_preparing,
+            "FLASHING": self._on_enter_flashing,
+            "END": self._on_enter_end,
+            "ERROR": self._on_enter_error,
+        }
+
+        self._on_enter_idle()
+
+    def send_event(self, event: str):
+        next_state = self.transitions.get(self.state, {})
+
+        if event not in next_state:
+            return
+
+        self.previous_state = self.state
+        self.state = next_state[event]
+
+        handler = self.state_handlers.get(self.state)
+        if handler:
+            handler()
+
+    def _on_enter_idle(self):
+        init_pins()
+
+    def _on_enter_preparing(self):
+        flash_pin_on()
+        reset_pin_on()
+
+        if not (verify_pin_state(FLASHER_PIN_OFFSET, Value.ACTIVE) and verify_pin_state(RESET_PIN_OFFSET, Value.ACTIVE)):
+            self.send_event("error")
+
+    def _on_enter_flashing(self):
+        reset_pin_off()
+
+        if not (verify_pin_state(FLASHER_PIN_OFFSET, Value.ACTIVE) and verify_pin_state(RESET_PIN_OFFSET, Value.INACTIVE)):
+            self.send_event("error")
+
+    def _on_enter_end(self):
+        flash_pin_off()
+
+    def _on_enter_error(self):
+        flash_pin_off()
+        reset_pin_off()
+        print("ERRO")
+        
+
 # Simple class mimicking the image objects passed by the framework
 class ImageObject:
     def __init__(self, path, order=1):
@@ -74,6 +155,8 @@ class ImageObject:
 class FlashPython:
 
     def __init__(self):
+        self.gpiostate = StateMachine()
+
         # Notify user of initialization
         self.update_progress("Initialization of uniflash object completed", 0)
         
@@ -117,6 +200,11 @@ class FlashPython:
         if status is False:
             self.push_message("Check Integration. Dict keys do not match", FP_TRACE_LEVEL_FATAL)
             return
+
+        self.gpiostate.send_event("PREPARING")
+
+
+        self.gpiostate.send_event("FLASHING")
 
         c = self.check_is_cancel_set()
         if c is False:
@@ -207,13 +295,11 @@ class FlashPython:
         else:
             self.push_message(mmWaveProgFlash.AWR_CANCEL_MSG, FP_TRACE_LEVEL_WARNING)
 
+        self.gpiostate.send_event("STOP")
+
 
 # Command-line Execution Interface
 if __name__ == "__main__":
-
-    init_pin()
-    flash_pin_off()
-
     parser = argparse.ArgumentParser(description="Standalone CLI Firmware Flasher for Gen1 TI mmWave Radar Devices")
     parser.add_argument("-p", "--port", required=True, help="Target serial port (e.g., /dev/ttyUSB0 or COM4)")
     parser.add_argument("-f", "--file", required=True, help="Path to firmware binary (.bin file)")
@@ -250,13 +336,7 @@ if __name__ == "__main__":
         'DownloadFormat': args.erase
     }
 
-    flash_pin_on()
-
     # Instantiate the adjusted runner and execute the flash sequence
     flasher = FlashPython()
     image_queue = [ImageObject(args.file, order=1)] # Point to default image slot (META_IMAGE1)
     flasher.load_image(image_queue, props)
-
-    flash_pin_off()
-    end_pin()
-
