@@ -14,6 +14,4 @@ extern size_t g_cmd_line_len;
 extern uint32_t g_tx_sequence;
 extern int g_client_fd;
 
-pthread_t worker_tid;
-
 #endif

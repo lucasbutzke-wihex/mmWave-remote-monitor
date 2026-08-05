@@ -29,11 +29,11 @@ static void handle_sigint(int sig) {
 
 
 int main() {
-    LogConfig config = {
-        .log_file = "/tmp/application.log",
-        .max_size = 500,       // Small size limit (500 bytes) to trigger quick rotation demo
-        .max_backups = 3
-    };
+    // LogConfig config = {
+    //     .log_file = "/tmp/application.log",
+    //     .max_size = 500,       // Small size limit (500 bytes) to trigger quick rotation demo
+    //     .max_backups = 3
+    // };
 
     RadarWatchdog wdt;
     watchdog_start(&wdt, "23", 1.0); // TODO pino 23, 1s de timeout
@@ -43,12 +43,12 @@ int main() {
     int fd1 = configure_serial_port("/dev/ttyUSB1", B115200);
     int fd2 = configure_serial_port("/dev/ttyUSB0", B921600);
 
-    // Initialize clean primary log file
-    FILE *fp = fopen(config.log_file, "w");
-    if (fp) {
-        fprintf(fp, "=== Log Session Started ===\n");
-        fclose(fp);
-    }
+    // // Initialize clean primary log file
+    // FILE *fp = fopen(config.log_file, "w");
+    // if (fp) {
+    //     fprintf(fp, "=== Log Session Started ===\n");
+    //     fclose(fp);
+    // }
 
     int listen_fd = setup_tcp_listener(TCP_SERVER_PORT);
     if (listen_fd < 0) {
@@ -66,14 +66,25 @@ int main() {
         struct pollfd fds[4];
         int nfds = 0;
 
-        fds[nfds].fd = fd1; fds[nfds].events = POLLIN; nfds++;
-        fds[nfds].fd = fd2; fds[nfds].events = POLLIN; nfds++;
-        fds[nfds].fd = listen_fd; fds[nfds].events = POLLIN; nfds++;
+        fds[nfds].fd = fd1; 
+        fds[nfds].events = POLLIN; 
+        nfds++;
+
+        fds[nfds].fd = fd2; 
+        fds[nfds].events = POLLIN; 
+        nfds++;
+
+        fds[nfds].fd = listen_fd; 
+        fds[nfds].events = POLLIN; 
+        nfds++;
 
         int client_idx = -1;
         if (g_client_fd >= 0) {
             client_idx = nfds;
-            fds[nfds].fd = g_client_fd; fds[nfds].events = POLLIN; nfds++;
+
+            fds[nfds].fd = g_client_fd;
+            fds[nfds].events = POLLIN;
+            nfds++;
         }
 
         int ready = poll(fds, nfds, 100);
@@ -87,7 +98,8 @@ int main() {
             accept_new_client(listen_fd);
         }
 
-        if (client_idx >= 0 && (fds[client_idx].revents & (POLLIN | POLLHUP | POLLERR))) {
+        if (client_idx >= 0 && 
+            (fds[client_idx].revents & (POLLIN | POLLHUP | POLLERR))) {
             handle_client_data(fd1, fd2);
         }
 
@@ -112,7 +124,7 @@ int main() {
     }
 
     // Cleanup mutex resources
-    pthread_mutex_destroy(&log_mutex);
+    // pthread_mutex_destroy(&log_mutex);
 
     close_client();
     close(listen_fd);

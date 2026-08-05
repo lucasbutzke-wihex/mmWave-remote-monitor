@@ -1,133 +1,190 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <sys/stat.h>
+#include <stdbool.h>
 #include <pthread.h>
-#include <errno.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <stdarg.h>
+#include <sys/stat.h>
 
 #include "logger.h"
 
+#define MAX_LOG_MESSAGE 512
 
-/**
- * Rotates log files safely. Assumes log_mutex is locked or called sequentially.
- */
-int _rotate_logs(const char *base_path, int max_backups) {
-    char old_path[MAX_PATH];
-    char new_path[MAX_PATH];
+typedef struct{
+    char message[MAX_LOG_MESSAGE];
+    struct LogNode *next;
+} LogNode;
 
-    for (int i = max_backups - 1; i >= 1; i--) {
-        snprintf(old_path, sizeof(old_path), "%s.%d", base_path, i);
-        snprintf(new_path, sizeof(new_path), "%s.%d", base_path, i + 1);
+static pthread_t logger_thread;
 
-        if (access(old_path, F_OK) == 0) {
-            if (rename(old_path, new_path) != 0) {
-                perror("Failed to rotate backup log");
-                return -1;
-            }
-        }
+static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+
+static pthread_mutex_t cond = PTHREAD_COND_INITIALIZER;
+
+static LogNode *head = NULL;
+static LogNode *tail = NULL;
+
+static bool running = true;
+
+static int fd = -1;
+
+static char logfile[256];
+
+static size_t current_size = 0;
+
+static size_t max_log_size = 0;
+
+static int max_log_backups = 0;
+
+
+static void rotate_logs(void)
+{
+    close(fd);
+
+    char old_name[256];
+    char new_name[256];
+
+    for (int i=max_log_backups-1;i>=1;i--)
+    {
+        sprintf(old_name,"%s.%d",logfile,i);
+        sprintf(new_name,"%s.%d",logfile,i+1);
+
+        rename(old_name,new_name);
     }
 
-    if (access(base_path, F_OK) == 0) {
-        snprintf(new_path, sizeof(new_path), "%s.1", base_path);
-        if (rename(base_path, new_path) != 0) {
-            perror("Failed to rename primary log file");
-            return -1;
-        }
-    }
+    sprintf(new_name,"%s.1",logfile);
 
-    FILE *fp = fopen(base_path, "w");
-    if (fp == NULL) {
-        perror("Failed to create new log file");
-        return -1;
-    }
-    fclose(fp);
-    return 0;
+    rename(logfile,new_name);
+
+    fd = open(logfile,
+              O_CREAT|O_APPEND|O_WRONLY,
+              0644);
+
+    current_size = 0;
 }
 
-/**
- * Thread-safe logging function that checks file size, rotates if needed, 
- * and writes the message from any thread.
- */
-void write_log(const char *base_path, long max_bytes, int max_backups, const char *message) {
-    pthread_mutex_lock(&log_mutex); // Protect critical section
+static void *logger_worker(void *arg)
+{
+    (void)arg;
 
-    // 1. Check file size and rotate if threshold is reached
-    struct stat st;
-    if (stat(base_path, &st) == 0) {
-        if (st.st_size >= max_bytes) {
-            printf("[System] Log size limit reached. Rotating...\n");
-            _rotate_logs(base_path, max_backups);
+    while (1)
+    {
+        pthread_mutex_lock(&mutex);
+
+        while (head == NULL && running)
+            pthread_cond_wait(&cond,&mutex);
+
+        if (!running && head==NULL)
+        {
+            pthread_mutex_unlock(&mutex);
+            break;
         }
+
+        LogNode *node = head;
+
+        head = node->next;
+
+        if(head==NULL)
+            tail=NULL;
+
+        pthread_mutex_unlock(&mutex);
+
+        size_t len = strlen(node->message);
+
+        write(fd,node->message,len);
+
+        write(fd,"\n",1);
+
+        current_size += len+1;
+
+        free(node);
+
+        if(current_size >= max_log_size)
+            rotate_logs();
     }
 
-    // 2. Append the message to the active log file
-    FILE *fp = fopen(base_path, "a");
-    if (fp != NULL) {
-        fprintf(fp, "%s\n", message);
-        fclose(fp);
-    } else {
-        perror("Failed to open log file for writing");
-    }
-
-    pthread_mutex_unlock(&log_mutex); // Release lock
-}
-
-
-/**
- * Example Worker Thread function
- */
-void *worker_thread_routine(void *arg) {
-    LogConfig *config = (LogConfig *)arg;
-
-    for (int i = 1; i <= 50; i++) {
-        char buffer[MAX_MSG];
-        snprintf(buffer, sizeof(buffer), "Worker thread: processing item %d", i);
-        
-        // Safely log data from this background thread
-        write_log(config->log_file, config->max_size, config->max_backups, buffer);
-        
-        usleep(1); // Simulate workload
-    }
+    close(fd);
 
     return NULL;
 }
 
-int main(void) {
-    pthread_t worker_tid;
-    LogConfig config = {
-        .log_file = "/tmp/application.log",
-        .max_size = 500,       // Small size limit (500 bytes) to trigger quick rotation demo
-        .max_backups = 3
-    };
+int logger_init(const char *filename,
+                size_t max_size,
+                int backups)
+{
+    strcpy(logfile,filename);
 
-    // Initialize clean primary log file
-    FILE *fp = fopen(config.log_file, "w");
-    if (fp) {
-        fprintf(fp, "=== Log Session Started ===\n");
-        fclose(fp);
-    }
+    max_log_size = max_size;
 
-    // Spawn the background worker thread, passing configuration data pointer
-    if (pthread_create(&worker_tid, NULL, worker_thread_routine, &config) != 0) {
-        perror("Failed to create worker thread");
-        return EXIT_FAILURE;
-    }
+    max_log_backups = backups;
 
-    // Main thread can also log concurrently
-    for (int i = 1; i <= 30; i++) {
-        char buffer[MAX_MSG];
-        snprintf(buffer, sizeof(buffer), "Main thread: heartbeat check %d", i);
-        write_log(config.log_file, config.max_size, config.max_backups, buffer);
-        usleep(1000);
-    }
+    fd = open(filename,
+              O_CREAT|O_APPEND|O_WRONLY,
+              0644);
 
-    // Wait for the worker thread to finish execution
-    pthread_join(worker_tid, NULL);
+    if(fd<0)
+        return -1;
 
-    // Cleanup mutex resources
-    pthread_mutex_destroy(&log_mutex);
+    struct stat st;
 
-    printf("Logging demonstration completed successfully.\n");
-    return EXIT_SUCCESS;
+    if(stat(filename,&st)==0)
+        current_size = st.st_size;
+
+    pthread_create(
+            &logger_thread,
+            NULL,
+            logger_worker,
+            NULL);
+
+    return 0;
+}
+
+void logger_log(const char *fmt,...)
+{
+    char buffer[MAX_LOG_MESSAGE];
+
+    va_list args;
+
+    va_start(args,fmt);
+
+    vsnprintf(buffer,sizeof(buffer),fmt,args);
+
+    va_end(args);
+
+    LogNode *node = malloc(sizeof(LogNode));
+
+    if(node==NULL)
+        return;
+
+    strcpy(node->message,buffer);
+
+    node->next=NULL;
+
+    pthread_mutex_lock(&mutex);
+
+    if(tail)
+        tail->next=node;
+    else
+        head=node;
+
+    tail=node;
+
+    pthread_cond_signal(&cond);
+
+    pthread_mutex_unlock(&mutex);
+}
+
+void logger_shutdown()
+{
+    pthread_mutex_lock(&mutex);
+
+    running=0;
+
+    pthread_cond_signal(&cond);
+
+    pthread_mutex_unlock(&mutex);
+
+    pthread_join(logger_thread,NULL);
 }
