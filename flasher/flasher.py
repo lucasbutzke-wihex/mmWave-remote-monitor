@@ -2,6 +2,44 @@
 import os
 import sys
 import argparse
+import gpiod
+from gpiod.line import Direction, Value
+
+#define chip e pino
+CHIP_PATH = "/dev/gpiochip0"
+PIN_OFFSET = 17 #alterar depois se necessario
+
+_pin_req = None #para requisitar pino
+
+def init_pin(chip_path=CHIP_PATH, pin=PIN_OFFSET):
+    global _pin_req
+    
+    if _pin_req is not None:
+        return
+
+    _pin_req = gpiod.request_lines(
+        chip_path,
+        consumer="mmwave-controller",
+        config={
+            pin: gpiod.LineSettings(
+                direction=Direction.OUTPUT,
+                output_value=Value.INACTIVE
+            )
+        }
+    )
+
+def flash_pin_on(pin=PIN_OFFSET):
+    _pin_req.set_value(pin, Value.ACTIVE)
+
+def flash_pin_off(pin=PIN_OFFSET):
+    _pin_req.set_value(pin, Value.INACTIVE)
+
+def end_pin(): #libera pino
+    global _pin_req
+    
+    if _pin_req is not None:
+        _pin_req.close() 
+        _pin_req = None
 
 # Add search paths for local modules
 dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -30,6 +68,7 @@ class ImageObject:
         self.order = order  # Standard order 1 corresponds to META_IMAGE1
         self.file_id = ""   # To be populated by checkFileHeader
         self.fileSize = 0   # To be populated by checkFileHeader
+
 
 # Main Flasher class stripped of desktop GUI framework bindings
 class FlashPython:
@@ -171,6 +210,10 @@ class FlashPython:
 
 # Command-line Execution Interface
 if __name__ == "__main__":
+
+    init_pin()
+    flash_pin_off()
+
     parser = argparse.ArgumentParser(description="Standalone CLI Firmware Flasher for Gen1 TI mmWave Radar Devices")
     parser.add_argument("-p", "--port", required=True, help="Target serial port (e.g., /dev/ttyUSB0 or COM4)")
     parser.add_argument("-f", "--file", required=True, help="Path to firmware binary (.bin file)")
@@ -207,8 +250,13 @@ if __name__ == "__main__":
         'DownloadFormat': args.erase
     }
 
+    flash_pin_on()
+
     # Instantiate the adjusted runner and execute the flash sequence
     flasher = FlashPython()
     image_queue = [ImageObject(args.file, order=1)] # Point to default image slot (META_IMAGE1)
     flasher.load_image(image_queue, props)
+
+    flash_pin_off()
+    end_pin()
 
