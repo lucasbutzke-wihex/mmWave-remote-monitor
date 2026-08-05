@@ -44,3 +44,55 @@ The main C program acts as a multi-channel protocol engine server. Below is a br
 - Multiplexing (poll): Efficiently monitors serial file descriptors, the TCP listener socket, and active client connections concurrently with a 100ms timeout.
 
 - Safety & Alignment: Uses strict ARM alignment directives (alignas(16)) for the data accumulation buffers and handles graceful shutdowns via SIGINT.
+
+# Test Serial Ports
+
+## Install socat(if not already installed)
+
+```
+    sudo apt install socat
+```
+
+## Create the Dummy Serial Ports
+
+Since Linux restricts regular users from creating device nodes directly under /dev without root privileges, use sudo to set up pseudo-terminal (PTY) symlinks corresponding to your application's expected ports (/dev/ttyUSB0 and /dev/ttyUSB1).
+
+```
+    sudo socat -d -d \
+    PTY,link=/dev/ttyUSB0,raw,echo=0 \
+    PTY,link=/dev/ttyUSB1,raw,echo=0
+```
+
+- What this does:
+
+    Creates a bidirectional bridge between two virtual serial ports.
+
+    Generates symlinks at /dev/ttyUSB0 and /dev/ttyUSB1.
+
+    Keeps the terminal open and outputs debugging info as data flows through the ports.
+
+## Grant Permissions (Optional)
+
+If your C application runs as a regular user and encounters permission denied errors when opening the ports, run this command in a separate terminal to make them accessible:
+
+```
+    sudo chmod 777 /dev/ttyUSB0 /dev/ttyUSB1
+```
+
+## Test and Interact with the Ports
+
+With socat running, open separate terminal windows to simulate data traffic to and from your application:
+Send simulated Radar Data to /dev/ttyUSB0
+
+Your code reads from fd2 (/dev/ttyUSB0), logs it, and pushes it out via TCP:
+
+```
+    echo "RADAR_TARGET_DATA_TEST" > /dev/ttyUSB0
+```
+## Listen to CLI responses from /dev/ttyUSB1
+
+Your code writes responses to fd1 (/dev/ttyUSB1):
+
+```
+    cat < /dev/ttyUSB1
+```

@@ -28,7 +28,7 @@ static void handle_sigint(int sig) {
 }
 
 
-int main() {
+int main(int argc, char * argv[]) {
     logger_init("/tmp/test.log", 1024 * 1024, 5);
 
     RadarWatchdog wdt;
@@ -36,8 +36,13 @@ int main() {
 
     signal(SIGINT, handle_sigint);
 
-    int fd1 = configure_serial_port("/dev/ttyUSB1", B115200);
-    int fd2 = configure_serial_port("/dev/ttyUSB0", B921600);
+    printf("%d\n", argc);
+    while (argc--){
+        printf("%s\n", argv[argc]);
+    }
+
+    int fd1 = configure_serial_port(argv[1], B115200);
+    int fd2 = configure_serial_port(argv[2], B921600);
 
     int listen_fd = setup_tcp_listener(TCP_SERVER_PORT);
     if (listen_fd < 0) {

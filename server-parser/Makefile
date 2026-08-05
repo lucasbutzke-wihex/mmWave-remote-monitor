@@ -28,6 +28,9 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 	@mkdir -p $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+run:
+	$(TARGET) /dev/ttyUSB1 /dev/ttyUSB0
+
 # Clean up build artifacts
 clean:
 	rm -rf $(BUILD_DIR)
