@@ -28,7 +28,7 @@ static void handle_sigint(int sig) {
 
 int main() {
     RadarWatchdog wdt;
-    watchdog_start(&wdt, "23", 1.0); // TODO pino 23, 1s de timeout
+    watchdog_start(&wdt, 21, 1.0); //  pino 21, 1s de timeout
 
     signal(SIGINT, handle_sigint);
 
