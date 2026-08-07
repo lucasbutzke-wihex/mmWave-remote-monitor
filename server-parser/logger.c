@@ -14,6 +14,8 @@
 
 #include "logger.h"
 
+static __thread unsigned long tid;
+
 #define BATCH_SIZE 64 // max batch size per loop
 
 // Struct now uses a flexible array member or a heap pointer for the message
@@ -186,32 +188,22 @@ void logger_log(LogLevel level, const char *fmt, ...)
     char buffer[MAX_LOG_MESSAGE];
     char final[MAX_LOG_MESSAGE + 128];
     char timestamp[64];
-
-    if (!buffer || !final) {
-        free(buffer);
-        free(final);
-        return; // Allocation failure guard
-    }
     
-    va_list args;
-    va_start(args, fmt);
-    vsnprintf(buffer, MAX_LOG_MESSAGE, fmt, args);
-    va_end(args);
-
-    unsigned long tid = (unsigned long)pthread_self();
-
-    snprintf(timestamp, sizeof(timestamp),
+    int pos = snprintf(final, sizeof(final),
             "%04d-%02d-%02d %02d:%02d:%02d.%03ld",
             tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
             tm.tm_hour, tm.tm_min, tm.tm_sec,
             ts.tv_nsec / 1000000);
 
-    snprintf(final, MAX_LOG_MESSAGE + 128,
-         "%s [%s] [TID:%lu] %s",
-         timestamp, level_string(level), tid, buffer);
+    if (!tid)
+        tid = (unsigned long)pthread_self();
 
-    free(buffer); // Buffer is no longer needed once formatted into 'final'
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buffer, MAX_LOG_MESSAGE, fmt, args);
+    va_end(args);
 
+    snprintf(final + pos, sizeof(final) - pos, fmt, args);
     
     // Allocate the queue node
     LogNode *node = malloc(sizeof(LogNode));
