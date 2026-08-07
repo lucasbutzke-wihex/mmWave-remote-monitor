@@ -1,4 +1,5 @@
 #define _DEFAULT_SOURCE
+#include <stdlib.h>
 #include <termios.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -9,8 +10,6 @@
 #include "serial.h"
 #include "common.h"
 #include "logger.h"
-
-#define RADAR_DEBUG_PRINT
 
 // TI mmWave Radar Magic Word Constant
 static const uint8_t RADAR_MAGIC_WORD[8] = {0x02, 0x01, 0x04, 0x03, 0x06, 0x05, 0x08, 0x07};
@@ -51,7 +50,7 @@ int configure_serial_port(const char *port_name, speed_t baud_rate) {
         close(fd);
         return -1;
     }
-
+    
     return fd;
 }
 
@@ -65,15 +64,13 @@ static void _handle_range_profile(const uint8_t *payload, uint32_t length) {
     uint16_t range_profile[MAX_RANGE_PROFILE_ELEMENTS];
     memcpy(range_profile, payload, num_elements * 2);
 
-#ifdef RADAR_DEBUG_PRINT
-    LOG_INFO("  [TLV Type 2] Parsed Range Profile. Elements: %u\n", num_elements);
+    LOG_DEBUG("  [TLV Type 2] Parsed Range Profile. Elements: %u\n", num_elements);
 
     LOG_DEBUG("Range Bin | ");
     for (uint32_t i = 0; i < num_elements; i++) {
         LOG_DEBUG("%u ", i, range_profile[i]);
     }
     LOG_DEBUG("\n");
-#endif
 }
 
 static void _handle_range_doppler_heatmap(const uint8_t *payload, uint32_t length) {
@@ -88,17 +85,15 @@ static void _handle_range_doppler_heatmap(const uint8_t *payload, uint32_t lengt
     static uint16_t heatmap_flat[MAX_HEATMAP_ELEMENTS];
     memcpy(heatmap_flat, payload, length);
 
-#ifdef RADAR_DEBUG_PRINT
-    LOG_INFO("  [TLV Type 5] Parsed Range-Doppler Heatmap matrix (%d x %d).\n", NUM_RANGE_BINS, NUM_DOPPLER_BINS);
+    LOG_DEBUG("  [TLV Type 5] Parsed Range-Doppler Heatmap matrix (%d x %d).\n", NUM_RANGE_BINS, NUM_DOPPLER_BINS);
     for (int r = 0; r < NUM_RANGE_BINS; r++) {
-        LOG_INFO("RangeDoppler %d | ", r);
+        LOG_DEBUG("RangeDoppler %d | ", r);
         for (int d = 0; d < NUM_DOPPLER_BINS; d++) {
             uint16_t intensity = heatmap_flat[r * NUM_DOPPLER_BINS + d];
             LOG_DEBUG("%u ", intensity);
         }
-        LOG_INFO("\n");
+        LOG_DEBUG("\n");
     }
-#endif
 }
 
 static void _parse_radar_tlv(uint32_t type, uint32_t length, const uint8_t *payload) {

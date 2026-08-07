@@ -3,6 +3,8 @@
 
 #include <stddef.h>
 
+#define MAX_LOG_MESSAGE 2 << 14
+
 typedef enum
 {
     LOG_TRACE = 0,

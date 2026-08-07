@@ -13,41 +13,28 @@
 
 #include "logger.h"
 
-#define MAX_LOG_MESSAGE 1024
-
-typedef struct LogNode{
-    char message[MAX_LOG_MESSAGE];
-    struct LogNode *next;
+// Struct now uses a flexible array member or a heap pointer for the message
+typedef struct LogNode {
+    char *message;          // Heap-allocated string for huge messages
+    struct LogNode *next;   // Linked list pointer for queue management
+    size_t length;          // Track message length
 } LogNode;
 
-static LogLevel current_level = LOG_INFO;
-
-struct timespec ts;
-struct tm tm;
-
-char buffer[MAX_LOG_MESSAGE];
-char timestamp[64];
-char final[1024];
-
-static pthread_t logger_thread;
-
-static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-
-static pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
-
+// Queue pointers for a linked-list-based queue
 static LogNode *head = NULL;
 static LogNode *tail = NULL;
+static size_t queue_count = 0;
+static size_t max_queue_size = 1000; // Limit total queued nodes to prevent memory exhaustion
 
+static LogLevel current_level = LOG_DEBUG;
+static pthread_t logger_thread;
+static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 static bool running = true;
-
 static int fd = -1;
-
 static char logfile[256];
-
 static size_t current_size = 0;
-
 static size_t max_log_size = 0;
-
 static int max_log_backups = 0;
 
 void logger_set_level(LogLevel level)
@@ -66,33 +53,26 @@ static const char *level_string(LogLevel level)
         case LOG_ERROR: return "ERROR";
         case LOG_FATAL: return "FATAL";
     }
-
     return "UNKNOWN";
 }
 
 static void rotate_logs(void)
 {
     close(fd);
-
     char old_name[256];
     char new_name[256];
 
-    for (int i=max_log_backups-1;i>=1;i--)
+    for (int i = max_log_backups - 1; i >= 1; i--)
     {
-        sprintf(old_name,"%s.%d",logfile,i);
-        sprintf(new_name,"%s.%d",logfile,i+1);
-
-        rename(old_name,new_name);
+        sprintf(old_name, "%s.%d", logfile, i);
+        sprintf(new_name, "%s.%d", logfile, i + 1);
+        rename(old_name, new_name);
     }
 
-    sprintf(new_name,"%s.1",logfile);
+    sprintf(new_name, "%s.1", logfile);
+    rename(logfile, new_name);
 
-    rename(logfile,new_name);
-
-    fd = open(logfile,
-              O_CREAT|O_APPEND|O_WRONLY,
-              0644);
-
+    fd = open(logfile, O_CREAT | O_APPEND | O_WRONLY, 0644);
     current_size = 0;
 }
 
@@ -105,153 +85,145 @@ static void *logger_worker(void *arg)
         pthread_mutex_lock(&mutex);
 
         while (head == NULL && running)
-            pthread_cond_wait(&cond,&mutex);
+            pthread_cond_wait(&cond, &mutex);
 
-        if (!running && head==NULL)
+        if (!running && head == NULL)
         {
             pthread_mutex_unlock(&mutex);
             break;
         }
 
+        // Pop from the head of the linked list
         LogNode *node = head;
-
-        head = node->next;
-
-        if(head==NULL)
-            tail=NULL;
+        head = head->next;
+        if (head == NULL)
+        {
+            tail = NULL;
+        }
+        queue_count--;
 
         pthread_mutex_unlock(&mutex);
 
-        size_t len = strlen(node->message);
+        // Write to file and free memory
+        write(fd, node->message, node->length);
+        write(fd, "\n", 1);
 
-        write(fd,node->message,len);
+        current_size += node->length + 1;
 
-        write(fd,"\n",1);
-
-        current_size += len+1;
-
+        free(node->message);
         free(node);
 
-        if(current_size >= max_log_size)
+        if (current_size >= max_log_size)
             rotate_logs();
     }
 
     close(fd);
-
     return NULL;
 }
 
-int logger_init(const char *filename,
-                size_t max_size,
-                int backups)
+int logger_init(const char *filename, size_t max_size, int backups)
 {
-    clock_gettime(CLOCK_REALTIME, &ts);
-
-    strcpy(logfile,filename);
-
+    strcpy(logfile, filename);
     max_log_size = max_size;
-
     max_log_backups = backups;
 
-    fd = open(filename,
-              O_CREAT|O_APPEND|O_WRONLY,
-              0644);
-
-
+    fd = open(filename, O_CREAT | O_APPEND | O_WRONLY, 0644);
     if (fd < 0) {
-        LOG_ERROR(stderr, "Failed to open file, exiting.\n");
+        perror("Failed to open log file");
         return -1;
     }
 
     struct stat st;
-
-    if(stat(filename,&st)==0)
+    if (stat(filename, &st) == 0)
         current_size = st.st_size;
 
-    pthread_create(
-            &logger_thread,
-            NULL,
-            logger_worker,
-            NULL);
-
+    pthread_create(&logger_thread, NULL, logger_worker, NULL);
     return 0;
 }
 
-void logger_log(LogLevel level,
-                const char *fmt,
-                ...)
+void logger_log(LogLevel level, const char *fmt, ...)
 {
-    if(level < current_level)
+    if (level < current_level)
         return;
+
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME_COARSE, &ts);
+
+    struct tm tm;
+    localtime_r(&ts.tv_sec, &tm);
+
+    // For large logs ($2^{14}$ = 16384 bytes), allocate dynamically or use a larger local buffer
+    size_t alloc_size = 16384; 
+    char *buffer = malloc(alloc_size);
+    char *final = malloc(alloc_size + 128);
+    char timestamp[64];
+
+    if (!buffer || !final) {
+        free(buffer);
+        free(final);
+        return; // Allocation failure guard
+    }
     
     va_list args;
-
-    va_start(args,fmt);
-
-    vsnprintf(buffer,sizeof(buffer),fmt,args);
-    
+    va_start(args, fmt);
+    vsnprintf(buffer, alloc_size, fmt, args);
     va_end(args);
-
-    if (level == LOG_ERROR)
-        perror(buffer);
-    else
-        printf("%s", buffer);
 
     unsigned long tid = (unsigned long)pthread_self();
 
-    localtime_r(&ts.tv_sec, &tm);
-
-    snprintf(timestamp,
-            sizeof(timestamp),
+    snprintf(timestamp, sizeof(timestamp),
             "%04d-%02d-%02d %02d:%02d:%02d.%03ld",
-            tm.tm_year + 1900,
-            tm.tm_mon + 1,
-            tm.tm_mday,
-            tm.tm_hour,
-            tm.tm_min,
-            tm.tm_sec,
+            tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+            tm.tm_hour, tm.tm_min, tm.tm_sec,
             ts.tv_nsec / 1000000);
 
-    snprintf(final,
-         sizeof(final),
+    snprintf(final, alloc_size + 128,
          "%s [%s] [TID:%lu] %s",
-         timestamp,
-         level_string(level),
-         tid,
-         buffer);
+         timestamp, level_string(level), tid, buffer);
 
+    free(buffer); // Buffer is no longer needed once formatted into 'final'
+
+    size_t final_len = strlen(final);
+
+    // Allocate the queue node
     LogNode *node = malloc(sizeof(LogNode));
-
-    if(node==NULL)
+    if (!node) {
+        free(final);
         return;
-
-    strcpy(node->message, final);
-
-    node->next=NULL;
+    }
+    
+    node->message = final;
+    node->length = final_len;
+    node->next = NULL;
 
     pthread_mutex_lock(&mutex);
 
-    if(tail)
-        tail->next=node;
-    else
-        head=node;
+    // Optional: Protect against boundless memory growth if queue gets jammed
+    if (queue_count >= max_queue_size) {
+        pthread_mutex_unlock(&mutex);
+        free(node->message);
+        free(node);
+        return;
+    }
 
-    tail=node;
+    if (tail)
+        tail->next = node;
+    else
+        head = node;
+
+    tail = node;
+    queue_count++;
 
     pthread_cond_signal(&cond);
-
     pthread_mutex_unlock(&mutex);
 }
 
 void logger_shutdown()
 {
     pthread_mutex_lock(&mutex);
-
-    running=0;
-
+    running = false;
     pthread_cond_signal(&cond);
-
     pthread_mutex_unlock(&mutex);
 
-    pthread_join(logger_thread,NULL);
+    pthread_join(logger_thread, NULL);
 }
