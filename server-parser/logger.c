@@ -69,7 +69,11 @@ static void rotate_logs(void)
 
     for (int i = max_log_backups - 1; i >= 1; i--)
     {
-        sprintf(old_name, "%s.%d", logfile, i);
+        snprintf(old_name,
+            sizeof(old_name),
+            "%s.%d",
+            logfile,
+            i);
         sprintf(new_name, "%s.%d", logfile, i + 1);
         rename(old_name, new_name);
     }
@@ -177,7 +181,11 @@ int logger_init(const char *filename, size_t max_size, int backups)
     if (stat(filename, &st) == 0)
         current_size = st.st_size;
 
-    pthread_create(&logger_thread, NULL, logger_worker, NULL);
+    if(pthread_create(&logger_thread, NULL, logger_worker, NULL) != 0){
+        close(fd);
+        return -1;
+    }
+    
     return 0;
 }
 
@@ -206,7 +214,7 @@ void logger_log(LogLevel level, const char *fmt, ...)
         tm.tm_sec,
         ts.tv_nsec / 1000000,
         level_string(level),
-        (unsigned long)pthread_self()
+        tid
     );
 
     va_list args;
