@@ -10,8 +10,11 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <sys/syscall.h>
+#include <sys/uio.h>
 
 #include "logger.h"
+
+#define BATCH_SIZE 64 // max batch size per loop
 
 // Struct now uses a flexible array member or a heap pointer for the message
 typedef struct LogNode {
@@ -80,6 +83,9 @@ static void *logger_worker(void *arg)
 {
     (void)arg;
 
+    struct iovec iov[BATCH_SIZE * 2]; // *2 because each log has a message + a newline string
+    LogNode *nodes_to_free[BATCH_SIZE];
+
     while (1)
     {
         pthread_mutex_lock(&mutex);
@@ -93,26 +99,51 @@ static void *logger_worker(void *arg)
             break;
         }
 
-        // Pop from the head of the linked list
-        LogNode *node = head;
-        head = head->next;
+        // --- BATCH EXTRACTION ---
+        size_t count = 0;
+        while (head != NULL && count < BATCH_SIZE)
+        {
+            LogNode *node = head;
+            head = head->next;
+            queue_count--;
+
+            nodes_to_free[count] = node;
+
+            // Map message buffer
+            iov[count * 2].iov_base = node->message;
+            iov[count * 2].iov_len = node->length;
+
+            // Map corresponding newline character
+            iov[count * 2 + 1].iov_base = (void *)"\n";
+            iov[count * 2 + 1].iov_len = 1;
+
+            count++;
+        }
+
         if (head == NULL)
         {
             tail = NULL;
         }
-        queue_count--;
 
         pthread_mutex_unlock(&mutex);
 
-        // Write to file and free memory
-        write(fd, node->message, node->length);
-        write(fd, "\n", 1);
+        // --- SINGLE BATCH WRITE USING writev ---
+        // This writes up to BATCH_SIZE messages (double the elements in iov) with ONE system call
+        ssize_t total_bytes_written = writev(fd, iov, count * 2);
 
-        current_size += node->length + 1;
+        if (total_bytes_written > 0)
+        {
+            current_size += total_bytes_written;
+        }
 
-        free(node->message);
-        free(node);
+        // --- CLEANUP MEMORY ---
+        for (size_t i = 0; i < count; i++)
+        {
+            free(nodes_to_free[i]->message);
+            free(nodes_to_free[i]);
+        }
 
+        // Check log rotation threshold
         if (current_size >= max_log_size)
             rotate_logs();
     }
