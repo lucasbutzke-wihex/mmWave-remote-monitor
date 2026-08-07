@@ -67,9 +67,12 @@ static void _handle_range_profile(const uint8_t *payload, uint32_t length) {
 
 #ifdef RADAR_DEBUG_PRINT
     LOG_INFO("  [TLV Type 2] Parsed Range Profile. Elements: %u\n", num_elements);
+
+    LOG_DEBUG("Range Bin | ");
     for (uint32_t i = 0; i < num_elements; i++) {
-        LOG_DEBUG("Range Bin %u: %u\n", i, range_profile[i]);
+        LOG_DEBUG("%u ", i, range_profile[i]);
     }
+    LOG_DEBUG("\n");
 #endif
 }
 
@@ -88,7 +91,7 @@ static void _handle_range_doppler_heatmap(const uint8_t *payload, uint32_t lengt
 #ifdef RADAR_DEBUG_PRINT
     LOG_INFO("  [TLV Type 5] Parsed Range-Doppler Heatmap matrix (%d x %d).\n", NUM_RANGE_BINS, NUM_DOPPLER_BINS);
     for (int r = 0; r < NUM_RANGE_BINS; r++) {
-        LOG_INFO("Range Bin %d: ", r);
+        LOG_INFO("RangeDoppler %d | ", r);
         for (int d = 0; d < NUM_DOPPLER_BINS; d++) {
             uint16_t intensity = heatmap_flat[r * NUM_DOPPLER_BINS + d];
             LOG_DEBUG("%u ", intensity);
