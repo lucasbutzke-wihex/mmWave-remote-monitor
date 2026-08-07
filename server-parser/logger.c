@@ -14,16 +14,16 @@
 
 #include "logger.h"
 
-static __thread unsigned long tid;
-
 #define BATCH_SIZE 64 // max batch size per loop
 
 // Struct now uses a flexible array member or a heap pointer for the message
 typedef struct LogNode {
-    struct LogNode *next;   // Linked list pointer for queue management
-    size_t length;          // Track message length
-    char * message;          // Heap-allocated string for huge messages
+    struct LogNode *next;           // Linked list pointer for queue management
+    size_t length;                  // Track message length
+    char message[MAX_LOG_MESSAGE + 128];  // Stack-allocated string for huge messages
 } LogNode;
+
+static __thread unsigned long tid;
 
 // Queue pointers for a linked-list-based queue
 static LogNode *head = NULL;
@@ -156,7 +156,11 @@ static void *logger_worker(void *arg)
 
 int logger_init(const char *filename, size_t max_size, int backups)
 {
-    strcpy(logfile, filename);
+    snprintf(logfile,
+         sizeof(logfile),
+         "%s",
+         filename);
+    
     max_log_size = max_size;
     max_log_backups = backups;
 

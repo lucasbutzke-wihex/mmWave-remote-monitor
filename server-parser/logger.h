@@ -3,7 +3,7 @@
 
 #include <stddef.h>
 
-#define MAX_LOG_MESSAGE 32768
+#define MAX_LOG_MESSAGE 4096
 
 typedef enum
 {
