@@ -20,9 +20,9 @@ static __thread unsigned long tid;
 
 // Struct now uses a flexible array member or a heap pointer for the message
 typedef struct LogNode {
-    char * message;          // Heap-allocated string for huge messages
     struct LogNode *next;   // Linked list pointer for queue management
     size_t length;          // Track message length
+    char * message;          // Heap-allocated string for huge messages
 } LogNode;
 
 // Queue pointers for a linked-list-based queue
@@ -160,6 +160,9 @@ int logger_init(const char *filename, size_t max_size, int backups)
     max_log_size = max_size;
     max_log_backups = backups;
 
+    if (!tid)
+        tid = (unsigned long)pthread_self();
+
     fd = open(filename, O_CREAT | O_APPEND | O_WRONLY, 0644);
     if (fd < 0) {
         perror("Failed to open log file");
@@ -178,43 +181,48 @@ void logger_log(LogLevel level, const char *fmt, ...)
 {
     if (level < current_level)
         return;
-
+        
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME_COARSE, &ts);
-
+    
     struct tm tm;
     localtime_r(&ts.tv_sec, &tm);
-
-    char buffer[MAX_LOG_MESSAGE];
+        
     char final[MAX_LOG_MESSAGE + 128];
-    char timestamp[64];
-    
-    int pos = snprintf(final, sizeof(final),
-            "%04d-%02d-%02d %02d:%02d:%02d.%03ld",
-            tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-            tm.tm_hour, tm.tm_min, tm.tm_sec,
-            ts.tv_nsec / 1000000);
 
-    if (!tid)
-        tid = (unsigned long)pthread_self();
+    int pos = snprintf(
+        final,
+        sizeof(final),
+        "%04d-%02d-%02d %02d:%02d:%02d.%03ld [%s] [TID:%lu] ",
+        tm.tm_year + 1900,
+        tm.tm_mon + 1,
+        tm.tm_mday,
+        tm.tm_hour,
+        tm.tm_min,
+        tm.tm_sec,
+        ts.tv_nsec / 1000000,
+        level_string(level),
+        (unsigned long)pthread_self()
+    );
 
     va_list args;
     va_start(args, fmt);
-    vsnprintf(buffer, MAX_LOG_MESSAGE, fmt, args);
+    int msg_len = vsnprintf(final + pos,
+                            sizeof(final) - pos,
+                            fmt,
+                            args);
     va_end(args);
 
-    snprintf(final + pos, sizeof(final) - pos, fmt, args);
-    
-    // Allocate the queue node
+    int total_len = (msg_len < 0) ? pos : pos + msg_len;
+    if (total_len >= (int)sizeof(final))
+        total_len = sizeof(final) - 1;
+
     LogNode *node = malloc(sizeof(LogNode));
-    if (!node) {
-        free(final);
+    if (!node)
         return;
-    }
-    
-    // size_t final_len = strlen(final);
-    node->message = final;
-    node->length = MAX_LOG_MESSAGE + 128;
+
+    memcpy(node->message, final, total_len + 1);
+    node->length = total_len;
     node->next = NULL;
 
     pthread_mutex_lock(&mutex);
