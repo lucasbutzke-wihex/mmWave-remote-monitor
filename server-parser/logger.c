@@ -18,7 +18,7 @@
 
 // Struct now uses a flexible array member or a heap pointer for the message
 typedef struct LogNode {
-    char *message;          // Heap-allocated string for huge messages
+    char * message;          // Heap-allocated string for huge messages
     struct LogNode *next;   // Linked list pointer for queue management
     size_t length;          // Track message length
 } LogNode;
@@ -183,10 +183,8 @@ void logger_log(LogLevel level, const char *fmt, ...)
     struct tm tm;
     localtime_r(&ts.tv_sec, &tm);
 
-    // For large logs ($2^{14}$ = 16384 bytes), allocate dynamically or use a larger local buffer
-    size_t alloc_size = 16384; 
-    char *buffer = malloc(alloc_size);
-    char *final = malloc(alloc_size + 128);
+    char buffer[MAX_LOG_MESSAGE];
+    char final[MAX_LOG_MESSAGE + 128];
     char timestamp[64];
 
     if (!buffer || !final) {
@@ -197,7 +195,7 @@ void logger_log(LogLevel level, const char *fmt, ...)
     
     va_list args;
     va_start(args, fmt);
-    vsnprintf(buffer, alloc_size, fmt, args);
+    vsnprintf(buffer, MAX_LOG_MESSAGE, fmt, args);
     va_end(args);
 
     unsigned long tid = (unsigned long)pthread_self();
@@ -208,14 +206,13 @@ void logger_log(LogLevel level, const char *fmt, ...)
             tm.tm_hour, tm.tm_min, tm.tm_sec,
             ts.tv_nsec / 1000000);
 
-    snprintf(final, alloc_size + 128,
+    snprintf(final, MAX_LOG_MESSAGE + 128,
          "%s [%s] [TID:%lu] %s",
          timestamp, level_string(level), tid, buffer);
 
     free(buffer); // Buffer is no longer needed once formatted into 'final'
 
-    size_t final_len = strlen(final);
-
+    
     // Allocate the queue node
     LogNode *node = malloc(sizeof(LogNode));
     if (!node) {
@@ -223,8 +220,9 @@ void logger_log(LogLevel level, const char *fmt, ...)
         return;
     }
     
+    // size_t final_len = strlen(final);
     node->message = final;
-    node->length = final_len;
+    node->length = MAX_LOG_MESSAGE + 128;
     node->next = NULL;
 
     pthread_mutex_lock(&mutex);
