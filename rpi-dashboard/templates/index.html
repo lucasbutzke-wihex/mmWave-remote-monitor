@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Pi Dashboard</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header>
+    <h1>🍓 Pi Dashboard</h1>
+    <div class="header-right">
+      <span id="last-updated">--</span>
+      <span id="status-dot" class="dot"></span>
+    </div>
+  </header>
+
+  <main>
+    <!-- CPU / RAM / NET -->
+    <section class="card">
+      <h2>System</h2>
+      <div class="metric">
+        <div class="metric-label">
+          <span>CPU</span>
+          <span id="cpu-percent-label">--%</span>
+        </div>
+        <div class="bar"><div id="cpu-bar" class="bar-fill"></div></div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">
+          <span>RAM</span>
+          <span id="mem-percent-label">--%</span>
+        </div>
+        <div class="bar"><div id="mem-bar" class="bar-fill"></div></div>
+      </div>
+      <div class="metric" id="swap-row">
+        <div class="metric-label">
+          <span>Swap</span>
+          <span id="swap-percent-label">--%</span>
+        </div>
+        <div class="bar"><div id="swap-bar" class="bar-fill"></div></div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat">
+          <div class="stat-value" id="cpu-temp">--</div>
+          <div class="stat-name">Temp</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value" id="net-down">--</div>
+          <div class="stat-name">↓ Down</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value" id="net-up">--</div>
+          <div class="stat-name">↑ Up</div>
+        </div>
+      </div>
+      <div class="substat" id="load-avg"></div>
+    </section>
+
+    <!-- DISKS -->
+    <section class="card">
+      <h2>Storage</h2>
+      <div id="disks-container"><p class="muted">Loading...</p></div>
+    </section>
+
+    <!-- SERIAL PORTS -->
+    <section class="card">
+      <h2>Serial Ports</h2>
+      <div id="serial-container"><p class="muted">Loading...</p></div>
+    </section>
+
+    <!-- LOGS -->
+    <section class="card">
+      <h2>Logs <span class="muted small">(/tmp)</span></h2>
+      <div id="logs-container"><p class="muted">Loading...</p></div>
+    </section>
+  </main>
+
+  <!-- Log viewer modal -->
+  <div id="log-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span id="log-modal-title">log</span>
+        <button id="log-modal-close">✕</button>
+      </div>
+      <pre id="log-modal-body"></pre>
+    </div>
+  </div>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
