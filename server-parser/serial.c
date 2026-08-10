@@ -133,7 +133,7 @@ static void _process_radar_frame(const uint8_t *frame_data, size_t size) {
         offset += sizeof(RadarTLVHeader);
 
         if (offset + tlv.length > header.totalPacketLen) {
-            LOG_WARN(stderr, "Warning: TLV structural length overflowed frame bound.\n");
+            LOG_WARN("Warning: TLV structural length overflowed frame bound.\n");
             break;
         }
 
@@ -149,7 +149,7 @@ static void _process_radar_frame(const uint8_t *frame_data, size_t size) {
 
 void port2_feed(char *accum, size_t *accum_len, const char *chunk, size_t n) {
     if (*accum_len + n >= PORT2_ACCUM_SIZE) {
-        LOG_WARN(stderr, "[Port2] Buffer saturated! Clearing alignment state.\n");
+        LOG_WARN("[Port2] Buffer saturated! Clearing alignment state.\n");
         *accum_len = 0;
         return;
     }
@@ -247,7 +247,7 @@ void handle_client_data(int fd1, int fd2) {
         } else if (g_cmd_line_len < CMD_LINE_BUF_SIZE - 1) {
             g_cmd_line_buf[g_cmd_line_len++] = c;
         } else {
-            LOG_WARN(stderr, "[TCP] Command line too long, discarding.\n");
+            LOG_WARN("[TCP] Command line too long, discarding.\n");
             g_cmd_line_len = 0;
         }
     }

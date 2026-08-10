@@ -50,7 +50,7 @@ int main(int argc, char * argv[]) {
 
     int listen_fd = setup_tcp_listener(TCP_SERVER_PORT);
     if (listen_fd < 0) {
-        LOG_ERROR(stderr, "Failed to start TCP listener, exiting.\n");
+        LOG_ERROR("Failed to start TCP listener, exiting.\n");
         return 1;
     }
 

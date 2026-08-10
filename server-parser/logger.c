@@ -96,6 +96,60 @@ static void rotate_logs(void)
     current_size = 0;
 }
 
+static void enqueue_log(LogLevel level, const char *location_prefix, const char *msg) 
+{
+    struct timespec ts;
+    struct tm tm;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    localtime_r(&ts.tv_sec, &tm);
+
+    char timestamp[64];
+    snprintf(timestamp, sizeof(timestamp),
+             "%04d-%02d-%02d %02d:%02d:%02d.%03ld",
+             tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+             tm.tm_hour, tm.tm_min, tm.tm_sec,
+             ts.tv_nsec / 1000000);
+
+    unsigned long tid = (unsigned long)pthread_self();
+    char final_str[MAX_LOG_MESSAGE];
+
+    if (location_prefix && location_prefix[0] != '\0') 
+    {
+        snprintf(final_str, sizeof(final_str),
+                 "%s [%s] [TID:%lu] [%s] %s",
+                 timestamp, level_string(level), tid, location_prefix, msg);
+    } 
+    else 
+    {
+        snprintf(final_str, sizeof(final_str),
+                 "%s [%s] [TID:%lu] %s",
+                 timestamp, level_string(level), tid, msg);
+    }
+
+    LogNode *node = malloc(sizeof(LogNode));
+
+    if (node == NULL) return;
+
+    strncpy(node->message, final_str, sizeof(node->message) - 1);
+    node->message[sizeof(node->message) - 1] = '\0';
+    node->next = NULL;
+
+    pthread_mutex_lock(&mutex);
+
+    if (tail) 
+    {
+        tail->next = node;
+    }
+    else
+    {
+        head = node;
+    }
+
+    tail = node;
+    pthread_cond_signal(&cond);
+    pthread_mutex_unlock(&mutex);
+}
+
 static void *logger_worker(void *arg)
 {
     (void)arg;
@@ -159,7 +213,7 @@ int logger_init(const char *filename,
 
 
     if (fd < 0) {
-        LOG_ERROR(stderr, "Failed to open file, exiting.\n");
+        LOG_ERROR("Failed to open file, exiting.\n");
         return -1;
     }
 
@@ -241,6 +295,27 @@ void logger_log(LogLevel level,
     pthread_cond_signal(&cond);
 
     pthread_mutex_unlock(&mutex);
+}
+
+void logger_log_loc(LogLevel level, const char *file, int line, const char *func, const char *fmt, ...) 
+{
+    (void)func;
+
+    if (level < current_level) return;
+
+    char buffer[MAX_LOG_MESSAGE];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buffer, sizeof(buffer), fmt, args);
+    va_end(args);
+
+    fprintf(stderr, "%s", buffer);
+    fflush(stderr);
+
+    char loc[128];
+    snprintf(loc, sizeof(loc), "%s:%d", file, line);
+
+    enqueue_log(level, loc, buffer);
 }
 
 void logger_shutdown()
