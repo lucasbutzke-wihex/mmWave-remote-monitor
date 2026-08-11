@@ -139,7 +139,7 @@ void* _watchdog_monitor(void *arg)
     return NULL;
 }
 
-void watchdog_start(RadarWatchdog *wdt, unsigned int gpio_offset, double timeout_val) {
+int watchdog_start(RadarWatchdog *wdt, unsigned int gpio_offset, double timeout_val) {
     wdt->gpio_offset = gpio_offset;
 
     _gpio_export();
@@ -154,6 +154,8 @@ void watchdog_start(RadarWatchdog *wdt, unsigned int gpio_offset, double timeout
     
     // Cria a thread de background
     pthread_create(&wdt->thread_id, NULL, _watchdog_monitor, (void*)wdt);
+
+    return 1;
 }
 
 void watchdog_stop(RadarWatchdog *wdt) 

@@ -62,7 +62,7 @@ void send_async_packet(uint32_t type, const void *payload, size_t payload_len) {
         ssize_t n = send(g_client_fd, tx_buffer + sent, total_len - sent, MSG_NOSIGNAL);
         if (n < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                LOG_WARN(stderr, "[TCP] Send would block, dropping packet type %u\n", type);
+                LOG_WARN("[TCP] Send would block, dropping packet type %u\n", type);
                 return;
             }
             LOG_ERROR("[TCP] send failed");

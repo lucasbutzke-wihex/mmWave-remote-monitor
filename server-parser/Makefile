@@ -1,7 +1,7 @@
 CC = clang
-CFLAGS = -Wall -Wextra -std=c11 -O2 -g -fsanitize=address
+CFLAGS = -Wall -Wextra -std=c11 -O2 -g # -fsanitize=address
 # Add any libraries you need here (e.g., -lgpiod -lpthread)
-LIBS = -lgpiod -lpthread -lrt -fsanitize=address
+LIBS = -lgpiod -lpthread -lrt # -fsanitize=address
 
 # Directories
 SRC_DIR = .
@@ -13,7 +13,7 @@ SRCS = $(wildcard $(SRC_DIR)/*.c)
 OBJS = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(SRCS))
 
 # Final binary output name
-TARGET = $(BUILD_DIR)/my_program
+TARGET = $(BUILD_DIR)/server_parser
 
 # Default target
 all: $(TARGET)
