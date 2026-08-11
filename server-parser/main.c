@@ -47,12 +47,7 @@ int main(int argc, char *argv[])
 
     RadarWatchdog wdt;
 
-    /*
-     * ---------------------------------------------------------
-     * 1. Validate arguments FIRST
-     * ---------------------------------------------------------
-     */
-
+    // test arguments
     if (argc != 3)
     {
         fprintf(stderr,
@@ -65,12 +60,7 @@ int main(int argc, char *argv[])
     const char *port1 = argv[1];
     const char *port2 = argv[2];
 
-    /*
-     * ---------------------------------------------------------
-     * 2. Install signal handlers
-     * ---------------------------------------------------------
-     */
-
+    // config extern signal
     struct sigaction sa = {0};
 
     sa.sa_handler = signal_handler;
@@ -79,15 +69,8 @@ int main(int argc, char *argv[])
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
 
-    /*
-     * ---------------------------------------------------------
-     * 3. Initialize logger
-     * ---------------------------------------------------------
-     */
-
-    if (logger_init("/tmp/test.log",
-                    1024 * 1024,
-                    5) < 0)
+    // init logger
+    if (logger_init("/tmp/test.log", 1024 * 1024, 5) < 0)
     {
         fprintf(stderr, "Failed to initialize logger\n");
         return EXIT_FAILURE;
@@ -96,12 +79,6 @@ int main(int argc, char *argv[])
     logger_started = true;
 
     LOG_INFO("Starting application");
-
-    /*
-     * ---------------------------------------------------------
-     * 4. Start watchdog
-     * ---------------------------------------------------------
-     */
 
     if (watchdog_start(&wdt, 21, 1.0) < 0)
     {
@@ -143,8 +120,7 @@ int main(int argc, char *argv[])
 
     size_t port2_accum_len = 0;
 
-    LOG_INFO("Protocol Engine Server running on port %d",
-             TCP_SERVER_PORT);
+    LOG_INFO("Protocol Engine Server running on port %d", TCP_SERVER_PORT);
 
     while (g_running && !g_stop)
     {
