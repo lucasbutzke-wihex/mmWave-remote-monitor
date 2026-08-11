@@ -24,6 +24,8 @@ size_t g_cmd_line_len = 0;
 uint32_t g_tx_sequence = 0;
 int g_client_fd = -1;
 
+const char * FILE_BACKUP = "/tmp/test.log";
+
 static volatile sig_atomic_t g_running = 1;
 
 static void signal_handler(int sig)
@@ -70,7 +72,7 @@ int main(int argc, char *argv[])
     sigaction(SIGTERM, &sa, NULL);
 
     // init logger
-    if (logger_init("/tmp/test.log", 1024 * 1024, 5) < 0)
+    if (logger_init(FILE_BACKUP, 1024 * 1024, 5) < 0)
     {
         fprintf(stderr, "Failed to initialize logger\n");
         return EXIT_FAILURE;

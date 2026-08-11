@@ -1,7 +1,7 @@
 CC = clang
-CFLAGS = -Wall -Wextra -std=c11 -O2 -g # -fsanitize=address
+CFLAGS = -Wall -Wextra -std=c11 -O2 -g -fsanitize=address
 # Add any libraries you need here (e.g., -lgpiod -lpthread)
-LIBS = -lgpiod -lpthread -lrt # -fsanitize=address
+LIBS = -lgpiod -lpthread -lrt -fsanitize=address
 
 # Directories
 SRC_DIR = .
@@ -29,7 +29,7 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 run:
-	$(TARGET) /dev/ttyUSB1 /dev/ttyUSB0
+	$(TARGET) /dev/ttyUSB0 /dev/ttyUSB1
 
 # Clean up build artifacts
 clean:
