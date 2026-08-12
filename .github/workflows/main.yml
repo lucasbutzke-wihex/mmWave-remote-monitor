@@ -15,5 +15,5 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build project
-        working-directory: ./serial-parser
+        working-directory: serial-parser
         run: make
