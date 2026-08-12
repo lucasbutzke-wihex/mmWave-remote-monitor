@@ -1,24 +1,66 @@
-name: Build C Project
+name: Build server-parser
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main ]
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+
+    env:
+      GPIOD_VERSION: v2.1.3
+
+    defaults:
+      run:
+        working-directory: server-parser
 
     steps:
-      - name: Checkout repository
+      - name: Checkout project
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgpiod-dev
+          sudo apt-get install -y \
+            build-essential \
+            autoconf \
+            automake \
+            autoconf-archive \
+            libtool \
+            pkg-config \
+            m4
 
-      - name: Build project
-        working-directory: ./server-parser
+      - name: Cache libgpiod build
+        id: cache-gpiod
+        uses: actions/cache@v4
+        with:
+          path: |
+            /usr/local/include/gpiod.h
+            /usr/local/include/gpiod
+            /usr/local/lib/libgpiod*
+            /usr/local/lib/pkgconfig/libgpiod.pc
+          key: libgpiod-${{ env.GPIOD_VERSION }}-${{ runner.os }}
+
+      - name: Clone libgpiod
+        if: steps.cache-gpiod.outputs.cache-hit != 'true'
+        run: |
+          git clone https://git.kernel.org/pub/scm/libs/libgpiod/libgpiod.git /tmp/libgpiod
+          cd /tmp/libgpiod
+          git checkout ${{ env.GPIOD_VERSION }}
+
+      - name: Build and install libgpiod
+        if: steps.cache-gpiod.outputs.cache-hit != 'true'
+        run: |
+          cd /tmp/libgpiod
+          ./autogen.sh --enable-tools=yes --prefix=/usr/local
+          make -j$(nproc)
+          sudo make install
+
+      - name: Refresh linker cache
+        run: sudo ldconfig
+
+      - name: Build server-parser
         run: make
