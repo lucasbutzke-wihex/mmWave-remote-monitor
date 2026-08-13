@@ -235,3 +235,94 @@ main {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* Applications */
+
+.app-row {
+  padding: 10px;
+  background: #1d212b;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.app-row:last-child {
+  margin-bottom: 0;
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.app-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.app-description {
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.app-status {
+  font-size: 0.65rem;
+  padding: 3px 8px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.app-status-running {
+  background: rgba(61, 220, 132, 0.18);
+  color: var(--green);
+}
+
+.app-status-stopped {
+  background: rgba(136, 145, 163, 0.18);
+  color: var(--muted);
+}
+
+.app-status-error {
+  background: rgba(239, 89, 102, 0.18);
+  color: var(--red);
+}
+
+.app-info {
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-top: 5px;
+}
+
+.app-error {
+  font-size: 0.7rem;
+  color: var(--red);
+  margin-top: 5px;
+}
+
+.app-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.app-button {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #232733;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.app-button:hover {
+  background: #2b303c;
+}
+
+.app-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}

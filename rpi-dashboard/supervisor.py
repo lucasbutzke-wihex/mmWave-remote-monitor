@@ -87,6 +87,7 @@ class ManagedApp:
                 # Manual restart resets crash-loop tracking
                 self._restart_times = []
                 self.restart_count = 0
+            self._disabled = False
 
             try:
                 out_f = open(self.out_log, "ab")
@@ -116,6 +117,7 @@ class ManagedApp:
 
     def stop(self, manual=True):
         with self.lock:
+            self._disabled = True
             if self.proc is None or self.proc.poll() is not None:
                 self.status = "stopped"
                 return False, "not running"
@@ -194,6 +196,8 @@ class ManagedApp:
     def _maybe_restart(self):
         now = time.time()
         with self.lock:
+            if self._disabled:
+                return
             self._restart_times = [t for t in self._restart_times if now - t < RESTART_WINDOW_SEC]
             self._restart_times.append(now)
             self.restart_count += 1

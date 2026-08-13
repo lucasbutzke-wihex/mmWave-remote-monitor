@@ -143,6 +143,168 @@ async function openLog(name) {
   }
 }
 
+function formatUptime(seconds) {
+  if (seconds === null || seconds === undefined) {
+    return "--";
+  }
+
+  seconds = Math.floor(seconds);
+
+  const days = Math.floor(seconds / 86400);
+  seconds %= 86400;
+
+  const hours = Math.floor(seconds / 3600);
+  seconds %= 3600;
+
+  const minutes = Math.floor(seconds / 60);
+  seconds %= 60;
+
+  if (days > 0) {
+    return `${days}d ${hours}h`;
+  }
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+
+  return `${seconds}s`;
+}
+
+function renderApps(apps) {
+  const container = document.getElementById("apps-container");
+
+  if (!apps || apps.length === 0) {
+    container.innerHTML =
+      '<p class="muted">No supervised applications configured.</p>';
+    return;
+  }
+
+  container.innerHTML = apps.map(app => {
+    const running = app.status === "running";
+
+    let statusClass = "app-status-stopped";
+
+    if (app.status === "running") {
+      statusClass = "app-status-running";
+    } else if (
+      app.status === "crashed" ||
+      app.status === "crash_loop" ||
+      app.status === "failed_to_start"
+    ) {
+      statusClass = "app-status-error";
+    }
+
+    return `
+      <div class="app-row">
+
+        <div class="app-header">
+          <div>
+            <div class="app-name">${app.name}</div>
+            <div class="app-description">
+              ${app.description || ""}
+            </div>
+          </div>
+
+          <span class="app-status ${statusClass}">
+            ${app.status}
+          </span>
+        </div>
+
+        <div class="app-info">
+          ${
+            running
+              ? `PID ${app.pid} · CPU ${app.cpu_percent?.toFixed(1) ?? "--"}% · RAM ${fmtBytes(app.memory_bytes)}`
+              : ""
+          }
+        </div>
+
+        ${
+          running
+            ? `<div class="app-info">
+                 Uptime ${formatUptime(app.uptime_sec)}
+               </div>`
+            : ""
+        }
+
+        ${
+          app.last_signal
+            ? `<div class="app-error">
+                 ${app.last_signal}
+               </div>`
+            : ""
+        }
+
+        ${
+          app.last_exit_code !== null &&
+          app.last_exit_code !== undefined
+            ? `<div class="app-info">
+                 Exit code: ${app.last_exit_code}
+               </div>`
+            : ""
+        }
+
+        <div class="app-actions">
+
+          <button
+            class="app-button"
+            onclick="controlApp('${app.name}', 'start')"
+            ${running ? "disabled" : ""}
+          >
+            Start
+          </button>
+
+          <button
+            class="app-button"
+            onclick="controlApp('${app.name}', 'stop')"
+            ${running ? "" : "disabled"}
+          >
+            Stop
+          </button>
+
+          <button
+            class="app-button"
+            onclick="controlApp('${app.name}', 'restart')"
+          >
+            Restart
+          </button>
+
+        </div>
+
+      </div>
+    `;
+  }).join("");
+}
+
+async function controlApp(name, action) {
+  try {
+    const res = await fetch(
+      `/api/apps/${encodeURIComponent(name)}/${action}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    const data = await res.json();
+
+    if (!res.ok || !data.ok) {
+      alert(data.error || data.message || "Operation failed");
+      return;
+    }
+
+    await refresh();
+
+  } catch (e) {
+    alert("Failed to control application: " + e);
+  }
+}
+
 document.getElementById("log-modal-close").addEventListener("click", () => {
   document.getElementById("log-modal").classList.add("hidden");
 });
@@ -160,6 +322,7 @@ async function refresh() {
     renderSystem(data);
     renderDisks(data.disks);
     renderSerial(data.serial_ports);
+    renderApps(data.apps);
     renderLogs(data.logs);
 
     document.getElementById("last-updated").textContent = "Updated " + fmtTime(data.timestamp);

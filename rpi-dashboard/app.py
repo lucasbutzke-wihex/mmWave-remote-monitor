@@ -25,9 +25,11 @@ import time
 import threading
 import subprocess
 from datetime import datetime
-
 import psutil
 from flask import Flask, jsonify, render_template, abort, request
+import atexit
+
+from supervisor import Supervisor
 
 try:
     from serial.tools import list_ports
@@ -36,6 +38,9 @@ except ImportError:
 
 app = Flask(__name__)
 
+supervisor = Supervisor()
+supervisor.autostart_all()
+atexit.register(supervisor.shutdown_all)
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -333,12 +338,15 @@ def index():
 def api_data():
     return jsonify({
         "timestamp": datetime.now().isoformat(timespec="seconds"),
+
         "serial_ports": get_all_serial_ports(),
         "cpu": get_cpu_stats(),
         "memory": get_memory_stats(),
         "disks": get_disk_stats(),
         "network": get_network_stats(),
         "logs": get_log_files(),
+
+        "apps": supervisor.list_status(),
     })
 
 
@@ -356,6 +364,61 @@ def api_log_tail(name):
         "content": tail_file(path, lines),
     })
 
+@app.route("/api/apps/<name>/start", methods=["POST"])
+def api_app_start(name):
+    managed = supervisor.get(name)
+
+    if managed is None:
+        return jsonify({
+            "ok": False,
+            "error": "application not found"
+        }), 404
+
+    ok, message = managed.start(manual=True)
+
+    return jsonify({
+        "ok": ok,
+        "message": message,
+        "app": managed.get_status(),
+    }), 200 if ok else 409
+
+
+@app.route("/api/apps/<name>/stop", methods=["POST"])
+def api_app_stop(name):
+    managed = supervisor.get(name)
+
+    if managed is None:
+        return jsonify({
+            "ok": False,
+            "error": "application not found"
+        }), 404
+
+    ok, message = managed.stop(manual=True)
+
+    return jsonify({
+        "ok": ok,
+        "message": message,
+        "app": managed.get_status(),
+    }), 200 if ok else 409
+
+
+@app.route("/api/apps/<name>/restart", methods=["POST"])
+def api_app_restart(name):
+    managed = supervisor.get(name)
+
+    if managed is None:
+        return jsonify({
+            "ok": False,
+            "error": "application not found"
+        }), 404
+
+    ok, message = managed.restart()
+
+    return jsonify({
+        "ok": ok,
+        "message": message,
+        "app": managed.get_status(),
+    }), 200 if ok else 409
 
 if __name__ == "__main__":
     # threaded=True so the log-tail / refresh requests don't block each other
