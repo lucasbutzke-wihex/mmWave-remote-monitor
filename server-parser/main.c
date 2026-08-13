@@ -34,6 +34,16 @@ static void signal_handler(int sig)
     g_stop = 1;
 }
 
+static long now_ms(void)
+{
+    struct timespec ts;
+
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+
+    return (long)(ts.tv_sec * 1000L +
+                  ts.tv_nsec / 1000000L);
+}
+
 int main(int argc, char *argv[])
 {
     int ret = EXIT_FAILURE;
@@ -41,13 +51,13 @@ int main(int argc, char *argv[])
     int fd1 = -1;
     int fd2 = -1;
     int listen_fd = -1;
+    FILE *config_file = NULL;
 
     bool logger_started = false;
     bool watchdog_started = false;
 
     RadarWatchdog wdt;
 
-    // test arguments
     if (argc != 3)
     {
         fprintf(stderr,
@@ -60,7 +70,6 @@ int main(int argc, char *argv[])
     const char *port1 = argv[1];
     const char *port2 = argv[2];
 
-    // config extern signal
     struct sigaction sa = {0};
 
     sa.sa_handler = signal_handler;
@@ -69,7 +78,6 @@ int main(int argc, char *argv[])
     sigaction(SIGINT, &sa, NULL);
     sigaction(SIGTERM, &sa, NULL);
 
-    // init logger
     if (logger_init("/tmp/test.log", 1024 * 1024, 5) < 0)
     {
         fprintf(stderr, "Failed to initialize logger\n");
@@ -116,14 +124,93 @@ int main(int argc, char *argv[])
         goto cleanup;
     }
 
+    /*
+     * CLI configuration state.
+     */
+    config_file = fopen(configFile, "r");
+
+    if (config_file == NULL)
+    {
+        LOG_ERROR("Failed to open config file '%s': %s",
+                  configFile,
+                  strerror(errno));
+        goto cleanup;
+    }
+
+    bool config_done = false;
+    bool config_waiting = false;
+
+    char config_line[BUFFER_SIZE];
+    char config_response[BUFFER_SIZE];
+
+    size_t config_response_len = 0;
+    long config_deadline_ms = 0;
+
     alignas(16) static char port2_accum[PORT2_ACCUM_SIZE];
 
     size_t port2_accum_len = 0;
 
-    LOG_INFO("Protocol Engine Server running on port %d", TCP_SERVER_PORT);
+    LOG_INFO("Loading radar configuration from '%s'",
+             configFile);
+
+    LOG_INFO("Protocol Engine Server running on port %d",
+             TCP_SERVER_PORT);
 
     while (g_running && !g_stop)
     {
+        /*
+         * Send next configuration command when the CLI
+         * is not waiting for a response.
+         */
+        if (!config_done && !config_waiting)
+        {
+            if (fgets(config_line,
+                      sizeof(config_line),
+                      config_file) != NULL)
+            {
+                size_t len = strlen(config_line);
+
+                if (len > 0)
+                {
+                    ssize_t written = write(fd1,
+                                            config_line,
+                                            len);
+
+                    if (written < 0)
+                    {
+                        LOG_ERROR(
+                            "[Config] Failed to write command: %s",
+                            strerror(errno));
+
+                        fclose(config_file);
+                        config_file = NULL;
+
+                        goto cleanup;
+                    }
+
+                    config_response_len = 0;
+                    memset(config_response,
+                           0,
+                           sizeof(config_response));
+
+                    config_deadline_ms =
+                        now_ms() + RESPONSE_TIMEOUT_MS;
+
+                    config_waiting = true;
+
+                    LOG_INFO("[Config] Sent: %s",
+                             config_line);
+                }
+            }
+            else
+            {
+                config_done = true;
+
+                LOG_INFO(
+                    "[Config] Configuration complete");
+            }
+        }
+
         struct pollfd fds[4];
         int nfds = 0;
 
@@ -162,7 +249,9 @@ int main(int argc, char *argv[])
             if (errno == EINTR)
                 continue;
 
-            LOG_ERROR("poll failed: %s", strerror(errno));
+            LOG_ERROR("poll failed: %s",
+                      strerror(errno));
+
             break;
         }
 
@@ -175,11 +264,14 @@ int main(int argc, char *argv[])
             (fds[client_idx].revents &
              (POLLIN | POLLHUP | POLLERR)))
         {
-            handle_client_data(fd1, fd2);
+            if (config_done)
+            {
+                handle_client_data(fd1, fd2);
+            }
         }
 
         /*
-         * CLI serial
+         * CLI serial.
          */
         if (fds[0].revents & POLLIN)
         {
@@ -191,24 +283,82 @@ int main(int argc, char *argv[])
 
             if (n > 0)
             {
-                send_async_packet(PKT_TYPE_CLI_RESP,
-                                  rx_buffer,
-                                  (size_t)n);
+                if (config_waiting)
+                {
+                    if (config_response_len +
+                        (size_t)n <
+                        sizeof(config_response))
+                    {
+                        memcpy(config_response +
+                                   config_response_len,
+                               rx_buffer,
+                               (size_t)n);
+
+                        config_response_len +=
+                            (size_t)n;
+
+                        config_response[
+                            config_response_len] = '\0';
+                    }
+
+                    int line_count = 0;
+
+                    for (size_t i = 0;
+                         i < config_response_len;
+                         i++)
+                    {
+                        if (config_response[i] == '\n')
+                        {
+                            line_count++;
+                        }
+                    }
+
+                    if (line_count >= 2)
+                    {
+                        LOG_INFO(
+                            "[Config] Response received: %s",
+                            config_response);
+
+                        config_response_len = 0;
+                        config_waiting = false;
+                    }
+                }
+                else
+                {
+                    send_async_packet(
+                        PKT_TYPE_CLI_RESP,
+                        rx_buffer,
+                        (size_t)n);
+                }
             }
             else if (n < 0 &&
                      errno != EAGAIN &&
                      errno != EWOULDBLOCK &&
                      errno != EINTR)
             {
-                LOG_ERROR("[Serial] CLI read failed: %s",
-                          strerror(errno));
+                LOG_ERROR(
+                    "[Serial] CLI read failed: %s",
+                    strerror(errno));
             }
 
             watchdog_feed(&wdt);
         }
 
         /*
-         * Radar serial
+         * Configuration response timeout.
+         */
+        if (config_waiting &&
+            now_ms() >= config_deadline_ms)
+        {
+            LOG_WARN(
+                "[Config] Response timeout, continuing");
+
+            config_response_len = 0;
+            config_waiting = false;
+        }
+
+        /*
+         * Radar serial.
          */
         if (fds[1].revents & POLLIN)
         {
@@ -220,9 +370,10 @@ int main(int argc, char *argv[])
 
             if (n > 0)
             {
-                send_async_packet(PKT_TYPE_RADAR,
-                                  rx_buffer,
-                                  (size_t)n);
+                send_async_packet(
+                    PKT_TYPE_RADAR,
+                    rx_buffer,
+                    (size_t)n);
 
                 port2_feed(port2_accum,
                            &port2_accum_len,
@@ -234,8 +385,9 @@ int main(int argc, char *argv[])
                      errno != EWOULDBLOCK &&
                      errno != EINTR)
             {
-                LOG_ERROR("[Serial] Radar read failed: %s",
-                          strerror(errno));
+                LOG_ERROR(
+                    "[Serial] Radar read failed: %s",
+                    strerror(errno));
             }
 
             watchdog_feed(&wdt);
@@ -248,9 +400,11 @@ int main(int argc, char *argv[])
 
 cleanup:
 
-    /*
-     * Cleanup in REVERSE initialization order.
-     */
+    if (config_file != NULL)
+    {
+        fclose(config_file);
+        config_file = NULL;
+    }
 
     if (g_client_fd >= 0)
     {
