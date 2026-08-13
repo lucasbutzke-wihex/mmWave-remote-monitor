@@ -21,6 +21,36 @@ from datetime import datetime
 
 import psutil
 
+import logging
+from logging.handlers import RotatingFileHandler
+
+def setup_logging():
+    logger = logging.getLogger("supervisor")
+    logger.setLevel(logging.INFO)
+
+    formatter = logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    file_handler = RotatingFileHandler(
+        "/tmp/supervisor.log",
+        maxBytes=10 * 1024 * 1024,
+        backupCount=5,
+    )
+    file_handler.setFormatter(formatter)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    return logger
+
+
+logger = setup_logging()
+
 CONFIG_PATH = os.environ.get("APPS_CONFIG", os.path.join(os.path.dirname(__file__), "apps.json"))
 LOG_DIR = "/tmp"
 
@@ -72,10 +102,6 @@ class ManagedApp:
         self._disabled = False  # user asked to stop - blocks a pending auto-restart too
         self._watcher_thread = None
 
-        self.out_log = os.path.join(LOG_DIR, f"{self.name}.out.log")
-        self.err_log = os.path.join(LOG_DIR, f"{self.name}.err.log")
-        self.crash_log = os.path.join(LOG_DIR, f"{self.name}.crashes.log")
-
     # -- lifecycle -----------------------------------------------------
 
     def start(self, manual=False):
@@ -90,14 +116,10 @@ class ManagedApp:
             self._disabled = False
 
             try:
-                out_f = open(self.out_log, "ab")
-                err_f = open(self.err_log, "ab")
                 self.proc = subprocess.Popen(
                     self.command,
                     cwd=self.cwd,
                     env=self.env,
-                    stdout=out_f,
-                    stderr=err_f,
                     start_new_session=True,  # own process group -> can stop children too
                 )
             except (FileNotFoundError, PermissionError, OSError) as e:
@@ -188,8 +210,7 @@ class ManagedApp:
 
     def _append_crash_log(self, reason):
         try:
-            with open(self.crash_log, "a") as f:
-                f.write(f"[{_now()}] pid={self.pid} {reason}\n")
+            logger.error("pid=%s %s", self.pid, reason)
         except OSError:
             pass
 
