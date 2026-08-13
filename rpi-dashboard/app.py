@@ -53,12 +53,11 @@ MAX_TAIL_LINES = 2000
 
 # Internal / on-board serial devices to hide (Raspberry Pi UARTs, consoles, etc.)
 INTERNAL_SERIAL_PATTERNS = [
-    r"^/dev/ttyAMA\d+$",
-    r"^/dev/ttyS\d+$",
     r"^/dev/serial\d*$",
     r"^/dev/ttyprintk$",
     r"^/dev/console$",
 ]
+
 _internal_re = re.compile("|".join(INTERNAL_SERIAL_PATTERNS))
 
 # ---------------------------------------------------------------------------
