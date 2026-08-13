@@ -29,7 +29,7 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 run:
-	$(TARGET) /dev/ttyUSB1 /dev/ttyUSB0
+	$(TARGET) /dev/ttyAMA0 /dev/ttyAMA2
 
 # Clean up build artifacts
 clean:

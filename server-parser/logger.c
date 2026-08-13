@@ -299,6 +299,8 @@ void logger_log(LogLevel level, const char *fmt, ...)
                             args);
     va_end(args);
 
+    fprintf(stderr, "%s", final);
+
     int total_len = (msg_len < 0) ? pos : pos + msg_len;
     if (total_len >= (int)sizeof(final))
         total_len = sizeof(final) - 1;

@@ -19,6 +19,10 @@
 #include "common.h"
 #include "logger.h"
 
+#define CONFIG_DELAY_MS 100
+
+static long config_next_send_ms = 0;
+
 char g_cmd_line_buf[CMD_LINE_BUF_SIZE];
 size_t g_cmd_line_len = 0;
 uint32_t g_tx_sequence = 0;
@@ -162,7 +166,9 @@ int main(int argc, char *argv[])
          * Send next configuration command when the CLI
          * is not waiting for a response.
          */
-        if (!config_done && !config_waiting)
+        if (!config_done && 
+            !config_waiting && 
+            now_ms() >= config_next_send_ms)
         {
             if (fgets(config_line,
                       sizeof(config_line),
@@ -200,6 +206,9 @@ int main(int argc, char *argv[])
 
                     LOG_INFO("[Config] Sent: %s",
                              config_line);
+
+                    config_waiting = false;
+                    config_next_send_ms = now_ms() + CONFIG_DELAY_MS;
                 }
             }
             else
