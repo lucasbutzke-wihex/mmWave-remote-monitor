@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <pthread.h>
 
 #define BUFFER_SIZE 2048
 #define CMD_LINE_BUF_SIZE 512

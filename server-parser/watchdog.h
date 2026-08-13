@@ -14,7 +14,7 @@ typedef struct {
 
 static volatile sig_atomic_t g_stop = 0;
 
-void watchdog_start(RadarWatchdog *wdt, unsigned int gpio_offset, double timeout_val);
+int watchdog_start(RadarWatchdog *wdt, unsigned int gpio_offset, double timeout_val);
 void watchdog_feed(RadarWatchdog *wdt);
 void watchdog_stop(RadarWatchdog *wdt);
 

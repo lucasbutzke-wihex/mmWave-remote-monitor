@@ -1,27 +1,36 @@
 #define _DEFAULT_SOURCE
+#include <stdlib.h>
 #include <termios.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <errno.h>
+#include <string.h>
 
 #include "tcp_server.h"
 #include "serial.h"
 #include "common.h"
+#include "logger.h"
 
 // TI mmWave Radar Magic Word Constant
 static const uint8_t RADAR_MAGIC_WORD[8] = {0x02, 0x01, 0x04, 0x03, 0x06, 0x05, 0x08, 0x07};
 
 int configure_serial_port(const char *port_name, speed_t baud_rate) {
+    if (port_name == NULL) {
+        LOG_ERROR("[Serial] port_name is NULL");
+        return -1;
+    }
+
     int fd = open(port_name, O_RDWR | O_NOCTTY | O_NONBLOCK);
+    
     if (fd < 0) {
-        perror("Error opening serial port");
+        LOG_ERROR("Error opening serial port");
         return -1;
     }
 
     struct termios tty;
     if (tcgetattr(fd, &tty) != 0) {
-        perror("Error from tcgetattr");
+        LOG_ERROR("Error from tcgetattr");
         close(fd);
         return -1;
     }
@@ -44,11 +53,11 @@ int configure_serial_port(const char *port_name, speed_t baud_rate) {
     tty.c_cc[VTIME] = 0;
 
     if (tcsetattr(fd, TCSANOW, &tty) != 0) {
-        perror("Error from tcsetattr");
+        LOG_ERROR("Error from tcsetattr");
         close(fd);
         return -1;
     }
-
+    
     return fd;
 }
 
@@ -62,12 +71,13 @@ static void _handle_range_profile(const uint8_t *payload, uint32_t length) {
     uint16_t range_profile[MAX_RANGE_PROFILE_ELEMENTS];
     memcpy(range_profile, payload, num_elements * 2);
 
-#ifdef RADAR_DEBUG_PRINT
-    printf("  [TLV Type 2] Parsed Range Profile. Elements: %u\n", num_elements);
+    LOG_DEBUG("  [TLV Type 2] Parsed Range Profile. Elements: %u\n", num_elements);
+
+    LOG_DEBUG("Range Bin | ");
     for (uint32_t i = 0; i < num_elements; i++) {
-        printf("Range Bin %u: %u\n", i, range_profile[i]);
+        LOG_DEBUG("%u ", range_profile[i]);
     }
-#endif
+    LOG_DEBUG("\n");
 }
 
 static void _handle_range_doppler_heatmap(const uint8_t *payload, uint32_t length) {
@@ -82,17 +92,15 @@ static void _handle_range_doppler_heatmap(const uint8_t *payload, uint32_t lengt
     static uint16_t heatmap_flat[MAX_HEATMAP_ELEMENTS];
     memcpy(heatmap_flat, payload, length);
 
-#ifdef RADAR_DEBUG_PRINT
-    printf("  [TLV Type 5] Parsed Range-Doppler Heatmap matrix (%d x %d).\n", NUM_RANGE_BINS, NUM_DOPPLER_BINS);
+    LOG_DEBUG("  [TLV Type 5] Parsed Range-Doppler Heatmap matrix (%d x %d).\n", NUM_RANGE_BINS, NUM_DOPPLER_BINS);
     for (int r = 0; r < NUM_RANGE_BINS; r++) {
-        printf("Range Bin %d: ", r);
+        LOG_DEBUG("RangeDoppler %d | ", r);
         for (int d = 0; d < NUM_DOPPLER_BINS; d++) {
             uint16_t intensity = heatmap_flat[r * NUM_DOPPLER_BINS + d];
-            printf("%u ", intensity);
+            LOG_DEBUG("%u ", intensity);
         }
-        printf("\n");
+        LOG_DEBUG("\n");
     }
-#endif
 }
 
 static void _parse_radar_tlv(uint32_t type, uint32_t length, const uint8_t *payload) {
@@ -104,21 +112,37 @@ static void _parse_radar_tlv(uint32_t type, uint32_t length, const uint8_t *payl
             _handle_range_doppler_heatmap(payload, length);
             break;
         default:
-            printf("  [TLV Type %u] Found other data layer. Length: %u bytes\n", type, length);
+            LOG_WARN("  [TLV Type %u] Found other data layer. Length: %u bytes\n", type, length);
             break;
     }
 }
 
 static void _process_radar_frame(const uint8_t *frame_data, size_t size) {
-    if (size < sizeof(RadarFrameHeader)) return;
+    if (size < sizeof(RadarFrameHeader)) 
+        return;
 
     RadarFrameHeader header;
     memcpy(&header, frame_data, sizeof(RadarFrameHeader));
 
-    printf("\n--- [Radar Frame #%u] ---\n", header.frameNum);
-    printf(" Total Packet Length: %u bytes\n", header.totalPacketLen);
-    printf(" Detected Objects   : %u\n", header.numDetectedObj);
-    printf(" Total TLV Blocks   : %u\n", header.numTLVs);
+    if (header.totalPacketLen != size) {
+        LOG_WARN("[Radar] Header length %u != supplied size %zu\n",
+                 header.totalPacketLen,
+                 size);
+
+        return;
+    }
+
+    if (header.totalPacketLen < sizeof(RadarFrameHeader)) {
+        LOG_WARN("[Radar] Invalid packet length %u\n",
+                 header.totalPacketLen);
+
+        return;
+    }
+
+    LOG_INFO("\n--- [Radar Frame #%u] ---\n", header.frameNum);
+    LOG_INFO(" Total Packet Length: %u bytes\n", header.totalPacketLen);
+    LOG_INFO(" Detected Objects   : %u\n", header.numDetectedObj);
+    LOG_INFO(" Total TLV Blocks   : %u\n", header.numTLVs);
 
     size_t offset = sizeof(RadarFrameHeader);
 
@@ -130,7 +154,7 @@ static void _process_radar_frame(const uint8_t *frame_data, size_t size) {
         offset += sizeof(RadarTLVHeader);
 
         if (offset + tlv.length > header.totalPacketLen) {
-            fprintf(stderr, "Warning: TLV structural length overflowed frame bound.\n");
+            LOG_WARN("Warning: TLV structural length overflowed frame bound.\n");
             break;
         }
 
@@ -146,7 +170,7 @@ static void _process_radar_frame(const uint8_t *frame_data, size_t size) {
 
 void port2_feed(char *accum, size_t *accum_len, const char *chunk, size_t n) {
     if (*accum_len + n >= PORT2_ACCUM_SIZE) {
-        fprintf(stderr, "[Port2] Buffer saturated! Clearing alignment state.\n");
+        LOG_WARN("[Port2] Buffer saturated! Clearing alignment state.\n");
         *accum_len = 0;
         return;
     }
@@ -184,11 +208,35 @@ void port2_feed(char *accum, size_t *accum_len, const char *chunk, size_t n) {
 
         // ARM ALIGNMENT FIX: Safe extraction of length using memcpy instead of pointer type casting
         uint32_t total_packet_len;
-        memcpy(&total_packet_len, accum + 12, sizeof(uint32_t));
+        memcpy(&total_packet_len, accum + 12, sizeof(total_packet_len));
 
-        if (*accum_len < total_packet_len) {
-            return;
+        if (total_packet_len < sizeof(RadarFrameHeader)) {
+            LOG_WARN("[Port2] Invalid packet length: %u\n",
+                    total_packet_len);
+
+            // Drop the current magic word and search again
+            memmove(accum,
+                    accum + 8,
+                    *accum_len - 8);
+
+            *accum_len -= 8;
+            continue;
         }
+
+        if (total_packet_len > PORT2_ACCUM_SIZE) {
+            LOG_WARN("[Port2] Packet too large: %u bytes\n",
+                    total_packet_len);
+
+            memmove(accum,
+                    accum + 8,
+                    *accum_len - 8);
+
+            *accum_len -= 8;
+            continue;
+        }
+
+        if (*accum_len < total_packet_len)
+            return;
 
         _process_radar_frame((uint8_t *)accum, total_packet_len);
 
@@ -202,19 +250,43 @@ static void _handle_client_command(const char *line, size_t len, int fd1, int fd
     if (len == 0) return;
 
     if (strncmp(line, "RESET", 5) == 0) {
-        printf("\n[SYSTEM] Received Reset Request! Purging queues...\n");
+        LOG_INFO("\n[SYSTEM] Received Reset Request! Purging queues...\n");
         tcflush(fd1, TCIOFLUSH);
         tcflush(fd2, TCIOFLUSH);
         send_async_packet(PKT_TYPE_SYSTEM, "RESET_ACK", 9);
     } else {
         char cmd_buf[CMD_LINE_BUF_SIZE + 1];
-        size_t copy_len = (len < CMD_LINE_BUF_SIZE) ? len : CMD_LINE_BUF_SIZE;
+        size_t copy_len = 
+                    (len < CMD_LINE_BUF_SIZE) ? len : CMD_LINE_BUF_SIZE;
+        
         memcpy(cmd_buf, line, copy_len);
         cmd_buf[copy_len] = '\n';
 
-        ssize_t written = write(fd1, cmd_buf, copy_len + 1);
-        if (written < 0) {
-            perror("[Serial] Failed to write command");
+        size_t total = 0;
+        size_t wanted = copy_len + 1;
+
+        while (total < wanted)
+        {
+            ssize_t written = write(fd1,
+                                    cmd_buf + total,
+                                    wanted - total);
+
+            if (written > 0) {
+                total += (size_t)written;
+                continue;
+            }
+
+            if (written < 0 &&
+                (errno == EINTR))
+                continue;
+
+            if (written < 0 &&
+                (errno == EAGAIN || errno == EWOULDBLOCK))
+                break;
+
+            LOG_ERROR("[Serial] Failed to write command: %s",
+                    strerror(errno));
+            break;
         }
     }
 }
@@ -229,7 +301,7 @@ void handle_client_data(int fd1, int fd2) {
     }
     if (n < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) return;
-        perror("[TCP] recv failed");
+        LOG_ERROR("[TCP] recv failed");
         close_client();
         return;
     }
@@ -244,7 +316,7 @@ void handle_client_data(int fd1, int fd2) {
         } else if (g_cmd_line_len < CMD_LINE_BUF_SIZE - 1) {
             g_cmd_line_buf[g_cmd_line_len++] = c;
         } else {
-            fprintf(stderr, "[TCP] Command line too long, discarding.\n");
+            LOG_WARN("[TCP] Command line too long, discarding.\n");
             g_cmd_line_len = 0;
         }
     }
