@@ -80,6 +80,25 @@ static void _handle_range_profile(const uint8_t *payload, uint32_t length) {
     LOG_DEBUG("\n");
 }
 
+static void _handle_noise_profile(const uint8_t *payload, uint32_t length) {
+    uint32_t num_elements = length / 2;
+    if (num_elements > MAX_RANGE_PROFILE_ELEMENTS) {
+        num_elements = MAX_RANGE_PROFILE_ELEMENTS;
+    }
+    
+    // ARM ALIGNMENT FIX: Copy unaligned serial payload into a safely aligned stack buffer
+    uint16_t noise_profile[MAX_RANGE_PROFILE_ELEMENTS];
+    memcpy(noise_profile, payload, num_elements * 2);
+
+    LOG_DEBUG("  [TLV Type 3] Parsed Range Profile. Elements: %u\n", num_elements);
+
+    LOG_DEBUG("Noise Bin | ");
+    for (uint32_t i = 0; i < num_elements; i++) {
+        LOG_DEBUG("%u ", noise_profile[i]);
+    }
+    LOG_DEBUG("\n");
+}
+
 static void _handle_range_doppler_heatmap(const uint8_t *payload, uint32_t length) {
     uint32_t total_elements = length / 2;
     if (total_elements != MAX_HEATMAP_ELEMENTS) {
@@ -107,6 +126,9 @@ static void _parse_radar_tlv(uint32_t type, uint32_t length, const uint8_t *payl
     switch (type) {
         case 2:
             _handle_range_profile(payload, length);
+            break;
+        case 3:
+            _handle_noise_profile(payload, length);
             break;
         case 5:
             _handle_range_doppler_heatmap(payload, length);

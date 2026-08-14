@@ -157,6 +157,10 @@ class RadarNetworkWorker(QtCore.QThread):
                 arr = np.frombuffer(payload, dtype=np.uint16)
                 self.range_profile_signal.emit(arr.copy())
 
+            if tlv_type == 3:
+                arr = np.frombuffer(payload, dtype=np.uint16)
+                self.range_profile_signal.emit(arr.copy())
+
             elif tlv_type == 5:
                 expected_elements = NUM_RANGE_BINS * NUM_DOPPLER_BINS
                 expected_bytes = expected_elements * 2
