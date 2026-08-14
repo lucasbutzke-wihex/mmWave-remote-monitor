@@ -8,11 +8,11 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
 # Update this to match your Raspberry Pi's local network IP address
-SERVER_IP = "127.0.0.1"
+SERVER_IP = "192.168.1.17"
 SERVER_PORT = 5001
 MAGIC_WORD = b'\x02\x01\x04\x03\x06\x05\x08\x07'
 
-NUM_RANGE_BINS = 512
+NUM_RANGE_BINS = 256
 NUM_DOPPLER_BINS = 16
 
 PKT_TYPE_CLI_RESP = 1
@@ -22,6 +22,7 @@ PKT_TYPE_SYSTEM = 99
 
 class RadarNetworkWorker(QtCore.QThread):
     range_profile_signal = QtCore.pyqtSignal(np.ndarray)
+    noise_profile_signal = QtCore.pyqtSignal(np.ndarray)
     heatmap_signal = QtCore.pyqtSignal(np.ndarray)
 
     HEADER_STRUCT = struct.Struct('!III')
@@ -159,7 +160,7 @@ class RadarNetworkWorker(QtCore.QThread):
 
             if tlv_type == 3:
                 arr = np.frombuffer(payload, dtype=np.uint16)
-                self.range_profile_signal.emit(arr.copy())
+                self.noise_profile_signal.emit(arr.copy())
 
             elif tlv_type == 5:
                 expected_elements = NUM_RANGE_BINS * NUM_DOPPLER_BINS
@@ -199,24 +200,52 @@ class RadarNetworkWorker(QtCore.QThread):
         self.wait()
 
 
+# class RangeProfileCanvas(FigureCanvas):
+#     def __init__(self, parent=None):
+#         self.fig = Figure(figsize=(6, 4))
+#         super().__init__(self.fig)
+#         self.setParent(parent)
+#         self.ax = self.fig.add_subplot(111)
+#         self.line, = self.ax.plot([])
+#         self.ax.set_title("Range Profile")
+#         self.ax.set_xlabel("Range Bin Index")
+#         self.ax.set_ylabel("Amplitude")
+#         self.ax.grid(True)
+
+#     def update_data(self, range_profile):
+#         self.line.set_data(np.arange(len(range_profile)), range_profile)
+#         self.ax.relim()
+#         self.ax.autoscale_view()
+#         self.draw()
 class RangeProfileCanvas(FigureCanvas):
     def __init__(self, parent=None):
         self.fig = Figure(figsize=(6, 4))
         super().__init__(self.fig)
         self.setParent(parent)
         self.ax = self.fig.add_subplot(111)
-        self.line, = self.ax.plot([])
-        self.ax.set_title("Range Profile")
+        
+        # Create two distinct lines for range and noise
+        self.range_line, = self.ax.plot([], label="Range Profile", color="blue")
+        self.noise_line, = self.ax.plot([], label="Noise Profile", color="orange")
+        
+        self.ax.set_title("Range & Noise Profile")
         self.ax.set_xlabel("Range Bin Index")
         self.ax.set_ylabel("Amplitude")
+        self.ax.legend(loc="upper right")
         self.ax.grid(True)
 
-    def update_data(self, range_profile):
-        self.line.set_data(np.arange(len(range_profile)), range_profile)
+    def update_range_data(self, range_profile):
+        self.range_line.set_data(np.arange(len(range_profile)), range_profile)
+        self._rescale_and_draw()
+
+    def update_noise_data(self, noise_profile):
+        self.noise_line.set_data(np.arange(len(noise_profile)), noise_profile)
+        self._rescale_and_draw()
+
+    def _rescale_and_draw(self):
         self.ax.relim()
         self.ax.autoscale_view()
         self.draw()
-
 
 class HeatmapCanvas(FigureCanvas):
     def __init__(self, parent=None):
@@ -262,13 +291,25 @@ class RadarMainWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.heatmap_canvas)
 
         self.thread = RadarNetworkWorker()
-        self.thread.range_profile_signal.connect(self.update_line_plot)
+
+        # Connect each signal to its respective update method
+        self.thread.range_profile_signal.connect(self.update_range_plot)
+        self.thread.noise_profile_signal.connect(self.update_noise_plot)
+
         self.thread.heatmap_signal.connect(self.update_heatmap_plot)
         self.thread.start()
 
+    # @QtCore.pyqtSlot(np.ndarray)
+    # def update_line_plot(self, data):
+    #     self.range_canvas.update_data(data)
+
     @QtCore.pyqtSlot(np.ndarray)
-    def update_line_plot(self, data):
-        self.range_canvas.update_data(data)
+    def update_range_plot(self, data):
+        self.range_canvas.update_range_data(data)
+
+    @QtCore.pyqtSlot(np.ndarray)
+    def update_noise_plot(self, data):
+        self.range_canvas.update_noise_data(data)
 
     @QtCore.pyqtSlot(np.ndarray)
     def update_heatmap_plot(self, log_matrix):
