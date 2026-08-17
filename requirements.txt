@@ -1,4 +1,4 @@
 RPi.GPIO
 numpy
-serial_asyncio_fast
-json_fix
+pyserial-asyncio-fast
+json-fix
