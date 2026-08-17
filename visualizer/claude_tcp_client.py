@@ -25,6 +25,8 @@ class RadarNetworkWorker(QtCore.QThread):
     noise_profile_signal = QtCore.pyqtSignal(np.ndarray)
     heatmap_signal = QtCore.pyqtSignal(np.ndarray)
 
+    status_profile_signal = QtCore.pyqtSignal(str)
+
     HEADER_STRUCT = struct.Struct('!III')
 
     def __init__(self):
@@ -162,6 +164,13 @@ class RadarNetworkWorker(QtCore.QThread):
                 arr = np.frombuffer(payload, dtype=np.uint16)
                 self.noise_profile_signal.emit(arr.copy())
 
+            if tlv_type == 9:
+                try:
+                    arr = payload.decode()
+                    self.status_profile_signal.emit(arr.copy())
+                except UnicodeDecodeError as e:
+                    print(f"Error decoding status: {e}")
+
             elif tlv_type == 5:
                 expected_elements = NUM_RANGE_BINS * NUM_DOPPLER_BINS
                 expected_bytes = expected_elements * 2
@@ -200,23 +209,6 @@ class RadarNetworkWorker(QtCore.QThread):
         self.wait()
 
 
-# class RangeProfileCanvas(FigureCanvas):
-#     def __init__(self, parent=None):
-#         self.fig = Figure(figsize=(6, 4))
-#         super().__init__(self.fig)
-#         self.setParent(parent)
-#         self.ax = self.fig.add_subplot(111)
-#         self.line, = self.ax.plot([])
-#         self.ax.set_title("Range Profile")
-#         self.ax.set_xlabel("Range Bin Index")
-#         self.ax.set_ylabel("Amplitude")
-#         self.ax.grid(True)
-
-#     def update_data(self, range_profile):
-#         self.line.set_data(np.arange(len(range_profile)), range_profile)
-#         self.ax.relim()
-#         self.ax.autoscale_view()
-#         self.draw()
 class RangeProfileCanvas(FigureCanvas):
     def __init__(self, parent=None):
         self.fig = Figure(figsize=(6, 4))
@@ -241,6 +233,9 @@ class RangeProfileCanvas(FigureCanvas):
     def update_noise_data(self, noise_profile):
         self.noise_line.set_data(np.arange(len(noise_profile)), noise_profile)
         self._rescale_and_draw()
+
+    def update_status_data(self, status_profile):
+        self.ax.legend(status_profile[0])
 
     def _rescale_and_draw(self):
         self.ax.relim()
@@ -295,6 +290,7 @@ class RadarMainWindow(QtWidgets.QMainWindow):
         # Connect each signal to its respective update method
         self.thread.range_profile_signal.connect(self.update_range_plot)
         self.thread.noise_profile_signal.connect(self.update_noise_plot)
+        self.thread.status_profile_signal.connect(self.update_status_plot)
 
         self.thread.heatmap_signal.connect(self.update_heatmap_plot)
         self.thread.start()
@@ -310,6 +306,10 @@ class RadarMainWindow(QtWidgets.QMainWindow):
     @QtCore.pyqtSlot(np.ndarray)
     def update_noise_plot(self, data):
         self.range_canvas.update_noise_data(data)
+
+    @QtCore.pyqtSlot(str)
+    def update_status_plot(self, data):
+        self.range_canvas.update_status_data(data)
 
     @QtCore.pyqtSlot(np.ndarray)
     def update_heatmap_plot(self, log_matrix):
