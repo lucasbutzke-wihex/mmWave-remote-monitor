@@ -34,6 +34,8 @@
 // Port 1: config/command state machine (non-blocking)
 // ---------------------------------------------------------------------
 typedef enum { PORT1_IDLE, PORT1_WAITING_RESPONSE, PORT1_DONE } port1_state_t;
+// TI mmWave Radar Magic Word Constant
+static const uint8_t RADAR_MAGIC_WORD[8] = {0x02, 0x01, 0x04, 0x03, 0x06, 0x05, 0x08, 0x07};
 
 // Standard TLV Header (Type-Length-Value)
 typedef struct __attribute__((packed)) {
@@ -54,8 +56,8 @@ typedef struct __attribute__((packed)) {
     uint32_t subFrameNum;
 } RadarFrameHeader;
 
-void port2_feed(char *accum, size_t *accum_len, const char *chunk, size_t n);
-void handle_client_data(int fd1, int fd2);
+void port2_feed(uint8_t *accum, size_t *accum_len, const uint8_t *chunk, size_t n);
+void handle_client_data(int *fd1, int *fd2);
 int configure_serial_port(const char *port_name, speed_t baud_rate);
 
 #endif

@@ -8,11 +8,11 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
 # Update this to match your Raspberry Pi's local network IP address
-SERVER_IP = "192.168.1.17"
+SERVER_IP = "192.168.1.18"
 SERVER_PORT = 5001
 MAGIC_WORD = b'\x02\x01\x04\x03\x06\x05\x08\x07'
 
-NUM_RANGE_BINS = 256
+NUM_RANGE_BINS = 128
 NUM_DOPPLER_BINS = 16
 
 PKT_TYPE_CLI_RESP = 1

@@ -150,7 +150,7 @@ int main(int argc, char *argv[])
     size_t config_response_len = 0;
     long config_deadline_ms = 0;
 
-    alignas(16) static char port2_accum[PORT2_ACCUM_SIZE];
+    alignas(16) static uint8_t port2_accum[PORT2_ACCUM_SIZE];
 
     size_t port2_accum_len = 0;
 
@@ -275,7 +275,7 @@ int main(int argc, char *argv[])
         {
             if (config_done)
             {
-                handle_client_data(fd1, fd2);
+                handle_client_data(&fd1, &fd2);
             }
         }
 
@@ -371,7 +371,7 @@ int main(int argc, char *argv[])
          */
         if (fds[1].revents & POLLIN)
         {
-            char rx_buffer[BUFFER_SIZE];
+            uint8_t rx_buffer[BUFFER_SIZE];
 
             ssize_t n = read(fd2,
                              rx_buffer,
