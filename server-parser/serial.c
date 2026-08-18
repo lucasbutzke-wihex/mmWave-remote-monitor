@@ -309,7 +309,8 @@ static void _process_radar_frame(const uint8_t *frame_data, size_t size) {
         offset += sizeof(RadarTLVHeader);
 
         if (offset + tlv.length > header.totalPacketLen) {
-            LOG_WARN("Warning: TLV structural length overflowed frame bound.\n");
+            LOG_WARN("Warning: TLV structural length overflowed frame bound.");
+            LOG_WARN("| offset %d tlv.length %d\n", offset, tlv.length);
             break;
         }
 
