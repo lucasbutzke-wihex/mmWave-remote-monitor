@@ -20,56 +20,6 @@ PKT_TYPE_CLI_RESP = 1
 PKT_TYPE_RADAR = 2
 PKT_TYPE_SYSTEM = 99
 
-def read_cfg_mmwave_web(url: str) -> dict:
-    """baixa o .cfg da web e extrai os parâmetros. """
-
-    response = requests.get(url)
-    response.raise_for_status()
-
-    config = {}
-
-    lines = response.text.splitlines() #processa conteudo
-
-    for line in lines:
-        empty_line = line.strip()
-
-        if not empty_line or empty_line.startswith("%"): #ignora linhas vazias e comentadas
-            continue
-
-        # parse
-        parts = empty_line.split()
-        command = parts[0]
-        arguments = parts[1:]
-
-        # Converte valores para int/float
-        converted_arg = []
-        for arg in arguments:
-            try:
-                if "." in arg:
-                    converted_arg.append(float(arg))
-                else:
-                    converted_arg.append(int(arg))
-            except ValueError:
-                converted_arg.append(
-                    arg
-                )
-
-        config[command] = converted_arg
-
-    return config
-
-def convert_range_bin_meters(dictionary: dict) -> float: # retorna em metros/bin, deve-se multiplicar pelo bin para ter a distancia
-    profileCfg = dictionary["profileCfg"]
-    slope = profileCfg[7] * 10**12; # Multiplica por 10¹² para converter para Hz/s ao inves de MHz/us
-    numAdcSamples = profileCfg[9]
-    freq = profileCfg[10] * 10**3 # multiplica por 10³ para converter de kpbs para Hz
-
-    range_bin_resol_meters = (3*(10**8)*freq)/(2*slope*numAdcSamples)
-
-    return range_bin_resol_meters
-
-
-
 class RadarNetworkWorker(QtCore.QThread):
     range_profile_signal = QtCore.pyqtSignal(np.ndarray)
     heatmap_signal = QtCore.pyqtSignal(np.ndarray)
@@ -253,12 +203,13 @@ class RangeProfileCanvas(FigureCanvas):
         self.ax = self.fig.add_subplot(111)
         self.line, = self.ax.plot([])
         self.ax.set_title("Range Profile")
-        self.ax.set_xlabel("Range Bin Index")
+        self.ax.set_xlabel("Distance (m)")
         self.ax.set_ylabel("Amplitude")
         self.ax.grid(True)
 
-    def update_data(self, range_profile):
-        self.line.set_data(np.arange(len(range_profile)), range_profile)
+    def update_data(self, range_profile, dist_bins):
+        self.line.set_data(np.arange(len(range_profile))*dist_bins, range_profile)
+        
         self.ax.relim()
         self.ax.autoscale_view()
         self.draw()
@@ -273,17 +224,24 @@ class HeatmapCanvas(FigureCanvas):
         self.colorbar = None
         self.im = None
 
-    def update_data(self, log_matrix, num_doppler_bins=NUM_DOPPLER_BINS):
+    def update_data(self, log_matrix, range_resolution, num_doppler_bins=NUM_DOPPLER_BINS):
+        num_range_bins = log_matrix.shape[0]
+        max_distance_meters = num_range_bins * range_resolution / 2
+
+        extent = [
+            -num_doppler_bins // 2, 
+            num_doppler_bins // 2 - 1,
+            0, 
+            max_distance_meters
+        ]
         if self.im is None:
-            extent = [-num_doppler_bins // 2, num_doppler_bins // 2 - 1,
-                      0, log_matrix.shape[0]]
 
             self.im = self.ax.imshow(log_matrix, cmap='jet', aspect='auto',
                                       extent=extent, origin='lower')
             self.colorbar = self.fig.colorbar(self.im, ax=self.ax, label='Log Energy / Intensity')
             self.ax.set_title('TI mmWave Range-Doppler Heatmap')
             self.ax.set_xlabel(r'Doppler Bin Index ($\leftarrow$ Away | Toward $\rightarrow$)')
-            self.ax.set_ylabel('Range Bin Index (Distance)')
+            self.ax.set_ylabel('Distance (m)')
             self.ax.grid(color='w', linestyle='--', alpha=0.5)
         else:
             self.im.set_data(log_matrix)
@@ -312,20 +270,71 @@ class RadarMainWindow(QtWidgets.QMainWindow):
         self.thread.heatmap_signal.connect(self.update_heatmap_plot)
         self.thread.start()
 
+        config_file = self.read_cfg_mmwave_web("http://100.109.224.24:8001/config.cfg")
+        self.distance_bins = self.convert_range_bin_meters(config_file)
+
     @QtCore.pyqtSlot(np.ndarray)
     def update_line_plot(self, data):
-        self.range_canvas.update_data(data)
+        self.range_canvas.update_data(data, self.distance_bins)
 
     @QtCore.pyqtSlot(np.ndarray)
     def update_heatmap_plot(self, log_matrix):
         min_val = float(np.min(log_matrix))
         max_val = float(np.max(log_matrix))
         print(f"[DEBUG GRAPH UPDATE] Processing bounds: Min={min_val:.2f}, Max={max_val:.2f}")
-        self.heatmap_canvas.update_data(log_matrix.astype(np.float32))
+        self.heatmap_canvas.update_data(log_matrix.astype(np.float32), self.distance_bins)
 
     def closeEvent(self, event):
         self.thread.stop()
         event.accept()
+
+    def read_cfg_mmwave_web(self, url: str) -> dict:
+        """baixa o .cfg da web e extrai os parâmetros. """
+
+        response = requests.get(url)
+        response.raise_for_status()
+
+        config = {}
+
+        lines = response.text.splitlines() #processa conteudo
+
+        for line in lines:
+            empty_line = line.strip()
+
+            if not empty_line or empty_line.startswith("%"): #ignora linhas vazias e comentadas
+                continue
+
+            # parse
+            parts = empty_line.split()
+            command = parts[0]
+            arguments = parts[1:]
+
+            # Converte valores para int/float
+            converted_arg = []
+            for arg in arguments:
+                try:
+                    if "." in arg:
+                        converted_arg.append(float(arg))
+                    else:
+                        converted_arg.append(int(arg))
+                except ValueError:
+                    converted_arg.append(
+                        arg
+                    )
+
+            config[command] = converted_arg
+
+        return config
+
+    def convert_range_bin_meters(self, dictionary: dict) -> float: # retorna em metros/bin, deve-se multiplicar pelo bin para ter a distancia
+        profileCfg = dictionary["profileCfg"]
+        slope = profileCfg[7] * 10**12; # Multiplica por 10¹² para converter para Hz/s ao inves de MHz/us
+        numAdcSamples = profileCfg[9]
+        freq = profileCfg[10] * 10**3 # multiplica por 10³ para converter de kpbs para Hz
+
+        range_bin_resol_meters = (3*(10**8)*freq)/(2*slope*numAdcSamples)
+
+        return range_bin_resol_meters
 
 
 if __name__ == '__main__':
