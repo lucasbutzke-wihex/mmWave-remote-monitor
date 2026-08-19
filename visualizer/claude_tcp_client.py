@@ -2,13 +2,14 @@ import sys
 import socket
 import struct
 import numpy as np
+import requests
 
 from PyQt5 import QtCore, QtWidgets
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
 # Update this to match your Raspberry Pi's local network IP address
-SERVER_IP = "127.0.0.1"
+SERVER_IP = "100.109.224.24"
 SERVER_PORT = 5001
 MAGIC_WORD = b'\x02\x01\x04\x03\x06\x05\x08\x07'
 
@@ -18,6 +19,55 @@ NUM_DOPPLER_BINS = 16
 PKT_TYPE_CLI_RESP = 1
 PKT_TYPE_RADAR = 2
 PKT_TYPE_SYSTEM = 99
+
+def read_cfg_mmwave_web(url: str) -> dict:
+    """baixa o .cfg da web e extrai os parâmetros. """
+
+    response = requests.get(url)
+    response.raise_for_status()
+
+    config = {}
+
+    lines = response.text.splitlines() #processa conteudo
+
+    for line in lines:
+        empty_line = line.strip()
+
+        if not empty_line or empty_line.startswith("%"): #ignora linhas vazias e comentadas
+            continue
+
+        # parse
+        parts = empty_line.split()
+        command = parts[0]
+        arguments = parts[1:]
+
+        # Converte valores para int/float
+        converted_arg = []
+        for arg in arguments:
+            try:
+                if "." in arg:
+                    converted_arg.append(float(arg))
+                else:
+                    converted_arg.append(int(arg))
+            except ValueError:
+                converted_arg.append(
+                    arg
+                )
+
+        config[command] = converted_arg
+
+    return config
+
+def convert_range_bin_meters(dictionary: dict) -> float: # retorna em metros/bin, deve-se multiplicar pelo bin para ter a distancia
+    profileCfg = dictionary["profileCfg"]
+    slope = profileCfg[7] * 10**12; # Multiplica por 10¹² para converter para Hz/s ao inves de MHz/us
+    numAdcSamples = profileCfg[9]
+    freq = profileCfg[10] * 10**3 # multiplica por 10³ para converter de kpbs para Hz
+
+    range_bin_resol_meters = (3*(10**8)*freq)/(2*slope*numAdcSamples)
+
+    return range_bin_resol_meters
+
 
 
 class RadarNetworkWorker(QtCore.QThread):
