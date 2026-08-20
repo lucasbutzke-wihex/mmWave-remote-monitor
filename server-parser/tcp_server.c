@@ -5,6 +5,13 @@
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <pthread.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 #include "tcp_server.h"
 #include "common.h"
@@ -39,38 +46,6 @@ int setup_tcp_listener(int port) {
 
     fcntl(listen_fd, F_SETFL, fcntl(listen_fd, F_GETFL, 0) | O_NONBLOCK);
     return listen_fd;
-}
-
-void send_async_packet(uint32_t type, const void *payload, size_t payload_len) {
-    if (g_client_fd < 0) return;
-
-    AsyncProtocolHeader header;
-    header.packet_type = htonl(type);
-    header.sequence_num = htonl(g_tx_sequence++);
-    header.payload_len = htonl((uint32_t)payload_len);
-
-    uint8_t tx_buffer[sizeof(AsyncProtocolHeader) + BUFFER_SIZE];
-    memcpy(tx_buffer, &header, sizeof(AsyncProtocolHeader));
-    if (payload && payload_len > 0) {
-        memcpy(tx_buffer + sizeof(AsyncProtocolHeader), payload, payload_len);
-    }
-
-    size_t total_len = sizeof(AsyncProtocolHeader) + payload_len;
-    size_t sent = 0;
-
-    while (sent < total_len) {
-        ssize_t n = send(g_client_fd, tx_buffer + sent, total_len - sent, MSG_NOSIGNAL);
-        if (n < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                LOG_WARN("[TCP] Send would block, dropping packet type %u\n", type);
-                return;
-            }
-            LOG_ERROR("[TCP] send failed");
-            close_client();
-            return;
-        }
-        sent += (size_t)n;
-    }
 }
 
 void close_client(void) {

@@ -1,4 +1,4 @@
-#define _POSIX_C_SOURCE 200809L
+#define _DEFAULT_SOURCE  // Ativa funções POSIX/BSD como usleep no C11
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,12 +12,14 @@
 #include <stdalign.h>
 #include <termios.h>
 #include <stdbool.h>
+#include <pthread.h>
 
 #include "serial.h"
 #include "watchdog.h"
 #include "tcp_server.h"
 #include "common.h"
 #include "logger.h"
+#include "ring_buffer.h"
 
 #define CONFIG_DELAY_MS 100
 
@@ -28,7 +30,17 @@ size_t g_cmd_line_len = 0;
 uint32_t g_tx_sequence = 0;
 int g_client_fd = -1;
 
-static volatile sig_atomic_t g_running = 1;
+alignas(16) static uint8_t port2_accum[PORT2_ACCUM_SIZE];
+size_t port2_accum_len = 0;
+
+static volatile sig_atomic_t g_running;
+static volatile sig_atomic_t g_stop;
+
+RadarWatchdog wdt;
+RadarRingBuffer radar_ring;
+
+static pthread_t radar_thread;
+static pthread_t tcp_thread;
 
 static void signal_handler(int sig)
 {
@@ -48,9 +60,321 @@ static long now_ms(void)
                   ts.tv_nsec / 1000000L);
 }
 
+#include "ring_buffer.h"
+
+static size_t ring_available( RadarRingBuffer *rb) {
+
+    if (rb->head >= rb->tail)
+        return rb->head - rb->tail;
+
+    return rb->size - rb->tail + rb->head;
+
+}
+
+static size_t ring_free(RadarRingBuffer *rb)
+{
+    return rb->size -
+           ring_available(rb) -
+           1;
+}
+
+static size_t ring_write(
+    RadarRingBuffer *rb,
+    const uint8_t *data,
+    size_t len)
+{
+    pthread_mutex_lock(&rb->mutex);
+
+    size_t free_space = ring_free(rb);
+
+    if (len > free_space) {
+        len = free_space;
+    }
+
+    for (size_t i = 0; i < len; i++) {
+        rb->data[rb->head] = data[i];
+
+        rb->head++;
+
+        if (rb->head == rb->size)
+            rb->head = 0;
+    }
+
+    pthread_cond_signal(&rb->data_available);
+
+    pthread_mutex_unlock(&rb->mutex);
+
+    return len;
+}
+
+#define TX_QUEUE_SIZE 128
+
+typedef struct {
+    uint32_t type;
+    size_t len;
+    uint8_t data[BUFFER_SIZE];
+} TxPacket;
+
+static TxPacket tx_queue[TX_QUEUE_SIZE];
+
+static size_t tx_head = 0;
+static size_t tx_tail = 0;
+
+static pthread_mutex_t tx_mutex =
+    PTHREAD_MUTEX_INITIALIZER;
+
+static pthread_cond_t tx_cond =
+    PTHREAD_COND_INITIALIZER;
+
+static bool tx_running = true;
+
+static size_t tx_queue_count(void)
+{
+    if (tx_head >= tx_tail)
+        return tx_head - tx_tail;
+
+    return TX_QUEUE_SIZE - tx_tail + tx_head;
+}
+
+static bool tx_queue_full(void)
+{
+    return tx_queue_count() >= TX_QUEUE_SIZE - 1;
+}
+
+static bool tx_queue_empty(void)
+{
+    return tx_head == tx_tail;
+}
+
+void *tcp_tx_thread(void *arg)
+{
+    (void)arg;
+
+    while (tx_running && g_running && !g_stop) {
+
+        pthread_mutex_lock(&tx_mutex);
+
+        while (tx_queue_empty() &&
+               tx_running &&
+               g_running &&
+               !g_stop) {
+
+            pthread_cond_wait(
+                &tx_cond,
+                &tx_mutex);
+        }
+
+        if (!tx_running ||
+            !g_running ||
+            g_stop) {
+
+            pthread_mutex_unlock(&tx_mutex);
+            break;
+        }
+
+        TxPacket packet = tx_queue[tx_tail];
+
+        tx_tail++;
+
+        if (tx_tail == TX_QUEUE_SIZE)
+            tx_tail = 0;
+
+        pthread_mutex_unlock(&tx_mutex);
+
+        /*
+         * TCP work happens OUTSIDE the mutex.
+         */
+        if (g_client_fd >= 0) {
+
+            AsyncProtocolHeader header;
+
+            header.packet_type =
+                htonl(packet.type);
+
+            header.sequence_num =
+                htonl(g_tx_sequence++);
+
+            header.payload_len =
+                htonl((uint32_t)packet.len);
+
+            uint8_t tx_buffer[
+                sizeof(AsyncProtocolHeader) +
+                BUFFER_SIZE
+            ];
+
+            memcpy(
+                tx_buffer,
+                &header,
+                sizeof(header));
+
+            memcpy(
+                tx_buffer + sizeof(header),
+                packet.data,
+                packet.len);
+
+            size_t total =
+                sizeof(header) + packet.len;
+
+            size_t sent = 0;
+
+            while (sent < total &&
+                   g_client_fd >= 0) {
+
+                ssize_t n = send(
+                    g_client_fd,
+                    tx_buffer + sent,
+                    total - sent,
+                    MSG_NOSIGNAL);
+
+                if (n > 0) {
+                    sent += (size_t)n;
+                    continue;
+                }
+
+                if (n < 0 &&
+                    errno == EINTR) {
+                    continue;
+                }
+
+                if (n < 0 &&
+                    (errno == EAGAIN ||
+                     errno == EWOULDBLOCK)) {
+
+                    /*
+                     * TCP socket is full.
+                     *
+                     * Don't lose the packet here.
+                     * Wait briefly and retry.
+                     */
+                    usleep(1000);
+                    continue;
+                }
+
+                LOG_ERROR(
+                    "[TCP] send failed: %s",
+                    strerror(errno));
+
+                close_client();
+
+                break;
+            }
+        }
+    }
+
+    return NULL;
+}
+
+void send_async_packet(
+    uint32_t type,
+    const void *payload,
+    size_t payload_len)
+{
+    if (!payload || payload_len == 0)
+        return;
+
+    if (payload_len > BUFFER_SIZE) {
+        LOG_ERROR(
+            "[TCP] Packet too large: %zu",
+            payload_len);
+        return;
+    }
+
+    pthread_mutex_lock(&tx_mutex);
+
+    /*
+     * Do not block the UART thread.
+     *
+     * If this happens, TCP is falling behind.
+     */
+    if (tx_queue_full()) {
+
+        pthread_mutex_unlock(&tx_mutex);
+
+        LOG_ERROR(
+            "[TCP] TX queue FULL - packet dropped");
+
+        return;
+    }
+
+    TxPacket *packet = &tx_queue[tx_head];
+
+    packet->type = type;
+    packet->len = payload_len;
+
+    memcpy(
+        packet->data,
+        payload,
+        payload_len);
+
+    tx_head++;
+
+    if (tx_head == TX_QUEUE_SIZE)
+        tx_head = 0;
+
+    pthread_cond_signal(&tx_cond);
+
+    pthread_mutex_unlock(&tx_mutex);
+}
+
+static void *radar_rx_thread(void *arg) {
+    int fd2 = *(int *)arg;
+
+    uint8_t rx_buffer[BUFFER_SIZE];
+
+    while (g_running && !g_stop) {
+
+        ssize_t n = read(
+            fd2,
+            rx_buffer,
+            sizeof(rx_buffer));
+
+        if (n > 0) {
+
+            /*
+             * Immediately forward to the
+             * asynchronous TCP queue.
+             */
+            send_async_packet(
+                PKT_TYPE_RADAR,
+                rx_buffer,
+                (size_t)n);
+
+            /*
+             * Keep your parser here initially.
+             */
+            port2_feed(
+                port2_accum,
+                &port2_accum_len,
+                rx_buffer,
+                (size_t)n);
+        }
+        else if (n < 0) {
+
+            if (errno == EINTR)
+                continue;
+
+            if (errno == EAGAIN ||
+                errno == EWOULDBLOCK)
+                continue;
+
+            LOG_ERROR(
+                "[Radar] read failed: %s",
+                strerror(errno));
+
+            break;
+        }
+    }
+
+    return NULL;
+}
+
+
 int main(int argc, char *argv[])
 {
     int ret = EXIT_FAILURE;
+
+    g_running = 1;
+    g_stop = 0;
 
     int fd1 = -1;
     int fd2 = -1;
@@ -59,8 +383,6 @@ int main(int argc, char *argv[])
 
     bool logger_started = false;
     bool watchdog_started = false;
-
-    RadarWatchdog wdt;
 
     if (argc != 3)
     {
@@ -120,6 +442,18 @@ int main(int argc, char *argv[])
         goto cleanup;
     }
 
+    if (pthread_create(
+            &radar_thread,
+            NULL,
+            radar_rx_thread,
+            &fd2) != 0) {
+
+        LOG_ERROR(
+            "Failed to create radar RX thread");
+
+        goto cleanup;
+    }
+
     listen_fd = setup_tcp_listener(TCP_SERVER_PORT);
 
     if (listen_fd < 0)
@@ -149,10 +483,6 @@ int main(int argc, char *argv[])
 
     size_t config_response_len = 0;
     long config_deadline_ms = 0;
-
-    alignas(16) static uint8_t port2_accum[PORT2_ACCUM_SIZE];
-
-    size_t port2_accum_len = 0;
 
     LOG_INFO("Loading radar configuration from '%s'",
              configFile);
@@ -220,34 +550,25 @@ int main(int argc, char *argv[])
             }
         }
 
-        struct pollfd fds[4];
+        struct pollfd fds[3];
         int nfds = 0;
 
         fds[nfds].fd = fd1;
         fds[nfds].events = POLLIN;
-        fds[nfds].revents = 0;
-        nfds++;
-
-        fds[nfds].fd = fd2;
-        fds[nfds].events = POLLIN;
-        fds[nfds].revents = 0;
         nfds++;
 
         fds[nfds].fd = listen_fd;
         fds[nfds].events = POLLIN;
-        fds[nfds].revents = 0;
         nfds++;
 
         int client_idx = -1;
 
-        if (g_client_fd >= 0)
-        {
+        if (g_client_fd >= 0) {
+
             client_idx = nfds;
 
             fds[nfds].fd = g_client_fd;
             fds[nfds].events = POLLIN;
-            fds[nfds].revents = 0;
-
             nfds++;
         }
 
