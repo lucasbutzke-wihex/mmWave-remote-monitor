@@ -62,6 +62,14 @@ static void signal_handler(int sig)
 
     g_running = 0;
     g_stop = 1;
+    tx_running = false;
+    
+    pthread_mutex_lock(&tx_mutex);
+    pthread_cond_broadcast(&tx_cond);
+    pthread_mutex_unlock(&tx_mutex);
+
+    pthread_join(radar_thread, NULL);
+    pthread_join(tcp_thread, NULL);
 }
 
 static long now_ms(void)
