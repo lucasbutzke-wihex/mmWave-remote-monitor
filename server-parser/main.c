@@ -434,6 +434,15 @@ int main(int argc, char *argv[])
         goto cleanup;
     }
 
+
+    listen_fd = setup_tcp_listener(TCP_SERVER_PORT);
+
+    if (listen_fd < 0)
+    {
+        LOG_ERROR("Failed to start TCP listener");
+        goto cleanup;
+    }
+
     if (pthread_create(
             &radar_thread,
             NULL,
@@ -446,11 +455,20 @@ int main(int argc, char *argv[])
         goto cleanup;
     }
 
-    listen_fd = setup_tcp_listener(TCP_SERVER_PORT);
+    if (pthread_create(
+            &tcp_thread,
+            NULL,
+            tcp_tx_thread,
+            NULL) != 0) {
 
-    if (listen_fd < 0)
-    {
-        LOG_ERROR("Failed to start TCP listener");
+        LOG_ERROR(
+            "Failed to create TCP TX thread");
+
+        g_running = 0;
+        g_stop = 1;
+
+        pthread_join(radar_thread, NULL);
+
         goto cleanup;
     }
 
