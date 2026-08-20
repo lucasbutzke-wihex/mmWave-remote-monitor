@@ -48,40 +48,84 @@ int setup_tcp_listener(int port) {
     return listen_fd;
 }
 
-void close_client(void) {
+void close_client(void)
+{
+    pthread_mutex_lock(&client_mutex);
+
     if (g_client_fd >= 0) {
-        close(g_client_fd);
+
+        int fd = g_client_fd;
         g_client_fd = -1;
+
+        close(fd);
+
         g_cmd_line_len = 0;
-        LOG_WARN("[TCP] Client disconnected.\n");
+
+        LOG_WARN("[TCP] Client disconnected.");
     }
+
+    pthread_mutex_unlock(&client_mutex);
 }
 
-void accept_new_client(int listen_fd) {
+void accept_new_client(int listen_fd)
+{
     struct sockaddr_in client_addr;
     socklen_t client_len = sizeof(client_addr);
 
-    int new_fd = accept(listen_fd, (struct sockaddr *)&client_addr, &client_len);
+    int new_fd = accept(
+        listen_fd,
+        (struct sockaddr *)&client_addr,
+        &client_len);
+
     if (new_fd < 0) {
-        if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            LOG_WARN("accept() failed");
+
+        if (errno != EAGAIN &&
+            errno != EWOULDBLOCK) {
+
+            LOG_WARN(
+                "[TCP] accept() failed: %s",
+                strerror(errno));
         }
+
         return;
     }
 
-    if (g_client_fd >= 0) {
-        LOG_WARN("[TCP] New client connecting, dropping previous client.\n");
-        close_client();
+    int flags = fcntl(
+        new_fd,
+        F_GETFL,
+        0);
+
+    if (flags >= 0) {
+        fcntl(
+            new_fd,
+            F_SETFL,
+            flags | O_NONBLOCK);
     }
 
-    fcntl(new_fd, F_SETFL, fcntl(new_fd, F_GETFL, 0) | O_NONBLOCK);
-
     int nodelay = 1;
-    setsockopt(new_fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+
+    setsockopt(
+        new_fd,
+        IPPROTO_TCP,
+        TCP_NODELAY,
+        &nodelay,
+        sizeof(nodelay));
+
+    pthread_mutex_lock(&client_mutex);
+
+    int old_fd = g_client_fd;
 
     g_client_fd = new_fd;
     g_cmd_line_len = 0;
 
-    LOG_WARN("[TCP] Client connected: %s:%d\n",
-           inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+    pthread_mutex_unlock(&client_mutex);
+
+    if (old_fd >= 0) {
+        close(old_fd);
+    }
+
+    LOG_INFO(
+        "[TCP] Client connected: %s:%d",
+        inet_ntoa(client_addr.sin_addr),
+        ntohs(client_addr.sin_port));
 }

@@ -22,6 +22,20 @@
 #include "ring_buffer.h"
 
 #define CONFIG_DELAY_MS 100
+#define TX_QUEUE_SIZE 256
+
+typedef struct {
+    uint32_t type;
+    size_t len;
+    uint8_t data[BUFFER_SIZE];
+} TxPacket;
+
+static TxPacket tx_queue[TX_QUEUE_SIZE];
+
+static size_t tx_head = 0;
+static size_t tx_tail = 0;
+
+static bool tx_running = true;
 
 static long config_next_send_ms = 0;
 
@@ -60,7 +74,6 @@ static long now_ms(void)
                   ts.tv_nsec / 1000000L);
 }
 
-#include "ring_buffer.h"
 
 static size_t ring_available( RadarRingBuffer *rb) {
 
@@ -106,27 +119,6 @@ static size_t ring_write(
 
     return len;
 }
-
-#define TX_QUEUE_SIZE 128
-
-typedef struct {
-    uint32_t type;
-    size_t len;
-    uint8_t data[BUFFER_SIZE];
-} TxPacket;
-
-static TxPacket tx_queue[TX_QUEUE_SIZE];
-
-static size_t tx_head = 0;
-static size_t tx_tail = 0;
-
-static pthread_mutex_t tx_mutex =
-    PTHREAD_MUTEX_INITIALIZER;
-
-static pthread_cond_t tx_cond =
-    PTHREAD_COND_INITIALIZER;
-
-static bool tx_running = true;
 
 static size_t tx_queue_count(void)
 {
@@ -553,49 +545,62 @@ int main(int argc, char *argv[])
         struct pollfd fds[3];
         int nfds = 0;
 
-        fds[nfds].fd = fd1;
-        fds[nfds].events = POLLIN;
-        nfds++;
-
-        fds[nfds].fd = listen_fd;
-        fds[nfds].events = POLLIN;
-        nfds++;
-
+        int cli_idx = -1;
+        int listen_idx = -1;
         int client_idx = -1;
 
+        /* CLI UART */
+        cli_idx = nfds;
+        fds[nfds].fd = fd1;
+        fds[nfds].events = POLLIN;
+        fds[nfds].revents = 0;
+        nfds++;
+
+        /* TCP listener */
+        listen_idx = nfds;
+        fds[nfds].fd = listen_fd;
+        fds[nfds].events = POLLIN;
+        fds[nfds].revents = 0;
+        nfds++;
+
+        /* TCP client */
         if (g_client_fd >= 0) {
 
             client_idx = nfds;
 
             fds[nfds].fd = g_client_fd;
             fds[nfds].events = POLLIN;
+            fds[nfds].revents = 0;
+
             nfds++;
         }
 
         int ready = poll(fds, nfds, 100);
 
-        if (ready < 0)
-        {
+        if (ready < 0) {
+
             if (errno == EINTR)
                 continue;
 
-            LOG_ERROR("poll failed: %s",
-                      strerror(errno));
+            LOG_ERROR(
+                "poll failed: %s",
+                strerror(errno));
 
             break;
         }
 
-        if (fds[2].revents & POLLIN)
-        {
+        if (listen_idx >= 0 &&
+            (fds[listen_idx].revents & POLLIN)) {
+
             accept_new_client(listen_fd);
         }
 
+        /* TCP client */
         if (client_idx >= 0 &&
             (fds[client_idx].revents &
-             (POLLIN | POLLHUP | POLLERR)))
-        {
-            if (config_done)
-            {
+            (POLLIN | POLLHUP | POLLERR))) {
+
+            if (config_done) {
                 handle_client_data(&fd1, &fd2);
             }
         }
@@ -603,26 +608,29 @@ int main(int argc, char *argv[])
         /*
          * CLI serial.
          */
-        if (fds[0].revents & POLLIN)
-        {
+        if (cli_idx >= 0 &&
+            (fds[cli_idx].revents & POLLIN)) {
+
             char rx_buffer[BUFFER_SIZE];
 
-            ssize_t n = read(fd1,
-                             rx_buffer,
-                             sizeof(rx_buffer));
+            ssize_t n = read(
+                fd1,
+                rx_buffer,
+                sizeof(rx_buffer));
 
-            if (n > 0)
-            {
-                if (config_waiting)
-                {
+            if (n > 0) {
+
+                if (config_waiting) {
+
                     if (config_response_len +
                         (size_t)n <
-                        sizeof(config_response))
-                    {
-                        memcpy(config_response +
-                                   config_response_len,
-                               rx_buffer,
-                               (size_t)n);
+                        sizeof(config_response)) {
+
+                        memcpy(
+                            config_response +
+                                config_response_len,
+                            rx_buffer,
+                            (size_t)n);
 
                         config_response_len +=
                             (size_t)n;
@@ -634,17 +642,15 @@ int main(int argc, char *argv[])
                     int line_count = 0;
 
                     for (size_t i = 0;
-                         i < config_response_len;
-                         i++)
-                    {
+                        i < config_response_len;
+                        i++) {
+
                         if (config_response[i] == '\n')
-                        {
                             line_count++;
-                        }
                     }
 
-                    if (line_count >= 2)
-                    {
+                    if (line_count >= 2) {
+
                         LOG_INFO(
                             "[Config] Response received: %s",
                             config_response);
@@ -652,20 +658,20 @@ int main(int argc, char *argv[])
                         config_response_len = 0;
                         config_waiting = false;
                     }
-                }
-                else
-                {
+
+                } else {
+
                     send_async_packet(
                         PKT_TYPE_CLI_RESP,
                         rx_buffer,
                         (size_t)n);
                 }
-            }
-            else if (n < 0 &&
-                     errno != EAGAIN &&
-                     errno != EWOULDBLOCK &&
-                     errno != EINTR)
-            {
+
+            } else if (n < 0 &&
+                    errno != EAGAIN &&
+                    errno != EWOULDBLOCK &&
+                    errno != EINTR) {
+
                 LOG_ERROR(
                     "[Serial] CLI read failed: %s",
                     strerror(errno));
@@ -685,42 +691,6 @@ int main(int argc, char *argv[])
 
             config_response_len = 0;
             config_waiting = false;
-        }
-
-        /*
-         * Radar serial.
-         */
-        if (fds[1].revents & POLLIN)
-        {
-            uint8_t rx_buffer[BUFFER_SIZE];
-
-            ssize_t n = read(fd2,
-                             rx_buffer,
-                             sizeof(rx_buffer));
-
-            if (n > 0)
-            {
-                send_async_packet(
-                    PKT_TYPE_RADAR,
-                    rx_buffer,
-                    (size_t)n);
-
-                port2_feed(port2_accum,
-                           &port2_accum_len,
-                           rx_buffer,
-                           (size_t)n);
-            }
-            else if (n < 0 &&
-                     errno != EAGAIN &&
-                     errno != EWOULDBLOCK &&
-                     errno != EINTR)
-            {
-                LOG_ERROR(
-                    "[Serial] Radar read failed: %s",
-                    strerror(errno));
-            }
-
-            watchdog_feed(&wdt);
         }
     }
 
