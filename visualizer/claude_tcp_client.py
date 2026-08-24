@@ -158,26 +158,21 @@ class RadarNetworkWorker(QtCore.QThread):
                 self.range_profile_signal.emit(arr.copy())
 
             elif tlv_type == 5:
-                expected_elements = NUM_RANGE_BINS * NUM_DOPPLER_BINS
-                expected_bytes = expected_elements * 2
+                # calcula o número de range bins dinamicamente baseado no payload
+                num_elements = len(payload) // 2
+                num_range_bins = num_elements // NUM_DOPPLER_BINS
+                
+                if num_range_bins == 0:
+                    continue
 
-                if len(payload) != expected_bytes:
-                    print(f"  [WARN] Heatmap TLV size mismatch: got {len(payload)} bytes, "
-                          f"expected {expected_bytes} bytes (tlv_len={tlv_len}).")
+                matrix_flat = np.frombuffer(payload, dtype=np.uint16)
 
-                truncated_payload = payload[:expected_bytes]
-                matrix_flat = np.frombuffer(truncated_payload, dtype=np.uint16)
+                try:
+                    matrix_2d = matrix_flat.reshape((num_range_bins, NUM_DOPPLER_BINS))
+                    shifted_matrix = np.fft.fftshift(matrix_2d, axes=1)
+                    log_matrix = np.log10(shifted_matrix + 1)
 
-                if len(matrix_flat) < expected_elements:
-                    padded_array = np.zeros(expected_elements, dtype=np.uint16)
-                    padded_array[:len(matrix_flat)] = matrix_flat
-                    matrix_flat = padded_array
-
-                matrix_2d = matrix_flat.reshape((NUM_RANGE_BINS, NUM_DOPPLER_BINS))
-                shifted_matrix = np.fft.fftshift(matrix_2d, axes=1)
-                log_matrix = np.log10(shifted_matrix + 1)
-
-                self.heatmap_signal.emit(log_matrix.copy())
+                    self.heatmap_signal.emit(log_matrix.copy())
 
             # Move pointer forward past current header + payload length
             pointer += 8 + tlv_len
@@ -226,7 +221,7 @@ class HeatmapCanvas(FigureCanvas):
 
     def update_data(self, log_matrix, range_resolution, num_doppler_bins=NUM_DOPPLER_BINS):
         num_range_bins = log_matrix.shape[0]
-        max_distance_meters = num_range_bins * range_resolution / 2
+        max_distance_meters = num_range_bins * range_resolution
 
         extent = [
             -num_doppler_bins // 2, 
@@ -244,6 +239,7 @@ class HeatmapCanvas(FigureCanvas):
             self.ax.set_ylabel('Distance (m)')
             self.ax.grid(color='w', linestyle='--', alpha=0.5)
         else:
+            self.im.set_extent(extent)
             self.im.set_data(log_matrix)
             self.im.set_clim(vmin=float(log_matrix.min()), vmax=float(log_matrix.max()))
 
@@ -282,7 +278,8 @@ class RadarMainWindow(QtWidgets.QMainWindow):
         min_val = float(np.min(log_matrix))
         max_val = float(np.max(log_matrix))
         print(f"[DEBUG GRAPH UPDATE] Processing bounds: Min={min_val:.2f}, Max={max_val:.2f}")
-        self.heatmap_canvas.update_data(log_matrix.astype(np.float32), self.distance_bins)
+        # self.heatmap_canvas.update_data(log_matrix.astype(np.float32), self.distance_bins)
+        self.heatmap_canvas.update_data(log_matrix, self.distance_bins)
 
     def closeEvent(self, event):
         self.thread.stop()
