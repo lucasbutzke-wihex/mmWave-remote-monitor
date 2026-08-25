@@ -1,0 +1,14 @@
+[Unit]
+Description=Raspberry Pi Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/rpi-dashboard
+ExecStart=/home/pi/rpi-dashboard/venv/bin/python3 /home/pi/rpi-dashboard/app.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

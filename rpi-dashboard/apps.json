@@ -1,0 +1,12 @@
+{
+  "apps": [
+    {
+      "name": "my_app",
+      "command": ["make", "run"],
+      "cwd": "/home/rpi4/Documents/mmWave-Visualizer-python/server-parser",
+      "autostart": true,
+      "restart_policy": "on-failure",
+      "description": "Main embedded application"
+    }
+  ]
+}

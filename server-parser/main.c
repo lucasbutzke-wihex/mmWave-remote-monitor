@@ -8,6 +8,8 @@
 #include <poll.h>
 #include <signal.h>
 #include <time.h>
+#include <signal.h>
+#include <time.h>
 #include <errno.h>
 #include <stdalign.h>
 #include <termios.h>
@@ -402,6 +404,8 @@ int main(int argc, char *argv[])
             watchdog_feed(&wdt);
         }
     }
+
+    logger_shutdown();
 
     LOG_INFO("Shutdown requested");
 
