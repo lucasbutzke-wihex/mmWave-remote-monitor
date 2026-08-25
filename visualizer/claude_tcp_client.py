@@ -173,6 +173,8 @@ class RadarNetworkWorker(QtCore.QThread):
                     log_matrix = np.log10(shifted_matrix + 1)
 
                     self.heatmap_signal.emit(log_matrix.copy())
+                except ValueError as e:
+                    print(f"  [WARN] Falha no reshape do Heatmap: {e}")
 
             # Move pointer forward past current header + payload length
             pointer += 8 + tlv_len
