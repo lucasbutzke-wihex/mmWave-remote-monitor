@@ -152,6 +152,9 @@ int main(int argc, char *argv[])
     const double time_interval = 1.0; //define intervalo de 1s entre toggle do led
     double last_toggle = get_current_time();
 
+    gpio_export();
+    gpio_config(led_pin);
+
     if (argc != 3)
     {
         fprintf(stderr,
@@ -257,15 +260,17 @@ int main(int argc, char *argv[])
          * is not waiting for a response.
          */
         double now = get_current_time();
-
+        
         if (now - last_toggle >= time_interval) 
         {    
+            // printf("%.2f, %.2f\n", now, last_toggle);
             led_state = !led_state; // Inverte o estado
             
             enum gpiod_line_value value = led_state ? GPIOD_LINE_VALUE_ACTIVE : GPIOD_LINE_VALUE_INACTIVE;
             gpio_write(led_pin, value);
             
             last_toggle = now; 
+            // printf("toggle led\n");
         }
 
         if (!config_done && 
