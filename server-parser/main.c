@@ -20,6 +20,7 @@
 #include "tcp_server.h"
 #include "common.h"
 #include "logger.h"
+#include "pin-control.h"
 
 #define CONFIG_DELAY_MS 100
 
@@ -31,89 +32,6 @@ uint32_t g_tx_sequence = 0;
 int g_client_fd = -1;
 
 static volatile sig_atomic_t g_running = 1;
-
-static struct gpiod_chip *chip = NULL;
-static struct gpiod_line_settings *settings = NULL;
-static struct gpiod_line_config *line_cfg = NULL;
-static struct gpiod_request_config *req_cfg = NULL;
-static struct gpiod_line_request *request = NULL;
-
-void gpio_export()
-{
-    chip = gpiod_chip_open("/dev/gpiochip4");
-    if (!chip) {
-        chip = gpiod_chip_open("/dev/gpiochip0");
-        if (!chip) {
-            LOG_ERROR("[LED TOGGLE] Erro ao abrir chip de GPIO");
-            return;
-        }
-    }
-}
-
-void gpio_config(unsigned int offset)
-{
-    if (!chip) {
-        return; 
-    }
-    
-    settings = gpiod_line_settings_new();
-    if (!settings) {
-        LOG_ERROR("[LED TOGGLE] Erro ao criar configurações");
-        return;
-    }
-
-    gpiod_line_settings_set_direction(settings, GPIOD_LINE_DIRECTION_OUTPUT); // define como saida
-    gpiod_line_settings_set_output_value(settings, GPIOD_LINE_VALUE_ACTIVE); // define nivel logico alto
-
-    line_cfg = gpiod_line_config_new();
-    if (!line_cfg) {
-        LOG_ERROR("[LED TOGGLE] Erro ao criar configuração da linha");
-        gpiod_line_settings_free(settings);
-        return;
-    }
-
-    if (gpiod_line_config_add_line_settings(line_cfg, &offset, 1, settings) < 0) {
-        LOG_ERROR("[LED TOGGLE] Erro ao adicionar configurações da linha");
-        gpiod_line_config_free(line_cfg);
-        gpiod_line_settings_free(settings);
-        return;
-    }
-
-    //offset de pino
-    req_cfg = gpiod_request_config_new();
-    if (!req_cfg) {
-         LOG_ERROR("[WATCHDOG] Erro ao criar request config");
-         gpiod_line_config_free(line_cfg);
-         gpiod_line_settings_free(settings);
-         return;
-    }
-    gpiod_request_config_set_consumer(req_cfg, "ToggleLED");
-
-    // solicita o controle do pino
-    request = gpiod_chip_request_lines(chip, req_cfg, line_cfg);
-    if (!request) {
-        LOG_ERROR("[LED TOGGLE] Erro ao requisitar linha GPIO");
-        gpiod_request_config_free(req_cfg);
-        gpiod_line_config_free(line_cfg);
-        gpiod_line_settings_free(settings);
-        return;
-    }
-}
-
-void gpio_write(unsigned int offset, enum gpiod_line_value value) 
-{
-    if (request) {
-        gpiod_line_request_set_value(request, offset, value);
-    }
-}
-
-double get_current_time() // retorna tempo atual (s)
-{
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-
-    return (double)tv.tv_sec + (double)tv.tv_usec / 1000000.0;
-}
 
 static void signal_handler(int sig)
 {
@@ -149,11 +67,10 @@ int main(int argc, char *argv[])
 
     unsigned int led_pin = 2;
     bool led_state = false;
-    const double time_interval = 1.0; //define intervalo de 1s entre toggle do led
+    const double time_interval = 120.0; //define intervalo de 1s entre toggle do led
     double last_toggle = get_current_time();
 
-    gpio_export();
-    gpio_config(led_pin);
+    gpio_init_pin(led_pin);
 
     if (argc != 3)
     {
