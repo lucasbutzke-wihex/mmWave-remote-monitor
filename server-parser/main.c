@@ -12,12 +12,15 @@
 #include <stdalign.h>
 #include <termios.h>
 #include <stdbool.h>
+#include <sys/time.h>
+#include <gpiod.h>
 
 #include "serial.h"
 #include "watchdog.h"
 #include "tcp_server.h"
 #include "common.h"
 #include "logger.h"
+#include "pin-control.h"
 
 #define CONFIG_DELAY_MS 100
 
@@ -61,6 +64,13 @@ int main(int argc, char *argv[])
     bool watchdog_started = false;
 
     RadarWatchdog wdt;
+
+    unsigned int led_pin = 2;
+    bool led_state = false;
+    const double time_interval = 120.0; //define intervalo de 1s entre toggle do led
+    double last_toggle = get_current_time();
+
+    gpio_init_pin(led_pin);
 
     if (argc != 3)
     {
@@ -166,6 +176,20 @@ int main(int argc, char *argv[])
          * Send next configuration command when the CLI
          * is not waiting for a response.
          */
+        double now = get_current_time();
+        
+        if (now - last_toggle >= time_interval) 
+        {    
+            // printf("%.2f, %.2f\n", now, last_toggle);
+            led_state = !led_state; // Inverte o estado
+            
+            enum gpiod_line_value value = led_state ? GPIOD_LINE_VALUE_ACTIVE : GPIOD_LINE_VALUE_INACTIVE;
+            gpio_write(led_pin, value);
+            
+            last_toggle = now; 
+            // printf("toggle led\n");
+        }
+
         if (!config_done && 
             !config_waiting && 
             now_ms() >= config_next_send_ms)
