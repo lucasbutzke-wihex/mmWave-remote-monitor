@@ -77,10 +77,6 @@ void watchdog_stop(RadarWatchdog *wdt)
     wdt->running = 0;
     pthread_join(wdt->thread_id, NULL); // espera a thread finalizar
     pthread_mutex_destroy(&wdt->lock);
-    gpiod_line_request_release(request);
-    gpiod_request_config_free(req_cfg);
-    gpiod_line_config_free(line_cfg);
-    gpiod_line_settings_free(settings);
-    gpiod_chip_close(chip);
+    gpio_cleanup();
     LOG_WARN("[WATCHDOG] Monitor parado\n");
 }
